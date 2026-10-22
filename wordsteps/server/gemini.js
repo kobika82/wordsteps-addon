@@ -18,9 +18,18 @@ const PATTERNS = {
   text: /^gemini-(\d+(?:\.\d+)?)-flash$/,
   image: /^gemini-(\d+(?:\.\d+)?)-flash-image(?:-preview)?$/
 };
+// השוואת גרסאות לפי מספרים (3.10 > 3.8)
+function cmpVersion(a, b) {
+  const pa = a.split('.').map(Number), pb = b.split('.').map(Number);
+  for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+    const d = (pa[i] || 0) - (pb[i] || 0);
+    if (d) return d;
+  }
+  return 0;
+}
 function pickLatest(names, kind) {
   const best = names.map(n => ({ n, m: PATTERNS[kind].exec(n) })).filter(x => x.m)
-    .sort((a, b) => Number(b.m[1]) - Number(a.m[1]) || a.n.length - b.n.length)[0];
+    .sort((a, b) => cmpVersion(b.m[1], a.m[1]) || a.n.length - b.n.length)[0];
   if (best) return best.n;
   return kind === 'image' ? names.find(n => /flash.*image/.test(n)) : names.find(n => /^gemini-[\d.]+-flash/.test(n) && !/image|tts|audio|live|lite/.test(n));
 }
