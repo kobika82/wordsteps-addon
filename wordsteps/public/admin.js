@@ -477,7 +477,7 @@
       grid.innerHTML = '';
       for (const w of visible()) {
         const cb = h('input', { type: 'checkbox', checked: sel.has(w.en), disabled: w.inBank, onchange: () => { cb.checked ? sel.add(w.en) : sel.delete(w.en); count.textContent = sel.size; } });
-        grid.appendChild(h('label.chip', { title: POS_HE[w.pos] || '', style: { opacity: w.inBank ? .5 : 1 } }, cb, ' ', en(w.en), w.inBank ? ' ✓' : ''));
+        grid.appendChild(h('label.chip', { title: [POS_HE[w.pos], w.meaning].filter(Boolean).join(' — '), style: { opacity: w.inBank ? .5 : 1 } }, cb, ' ', en(w.en), w.inBank ? ' ✓' : ''));
       }
       count.textContent = sel.size;
     };

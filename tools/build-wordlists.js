@@ -1,10 +1,14 @@
 'use strict';
 // בונה את wordsteps/server/wordlists.json מרשימות המילים הרשמיות.
-// קלט: טקסט שחולץ מקבצי ה-PDF (pdfjs) —
-//   band1.txt   ← https://meyda.education.gov.il/files/Mazkirut_Pedagogit/English/band11July18.pdf
-//   flyers.txt  ← https://www.cambridgeenglish.org/pl/Images/149681-yle-flyers-word-list.pdf (כולל Starters/Movers/Flyers)
-// שימוש: node tools/build-wordlists.js <תיקייה עם band1.txt ו-flyers.txt>
+// קלט: תיקייה ובה —
+//   x1/, x2/  ← קובצי ה-Excel הרשמיים של משרד החינוך, פרוסים (unzip):
+//              https://meyda.education.gov.il/files/Mazkirut_Pedagogit/English/CurriculumFilesAugust21/LexicalBand1.xlsx
+//              https://meyda.education.gov.il/files/Mazkirut_Pedagogit/English/CurriculumFilesAugust21/LexicalBand2.xlsx
+//   flyers.txt ← טקסט שחולץ (pdfjs) מ-https://www.cambridgeenglish.org/pl/Images/149681-yle-flyers-word-list.pdf
+// שימוש: node tools/build-wordlists.js <תיקייה>
+// שימו לב: רשימות משרד החינוך מוגנות בזכויות יוצרים — הריפו חייב להישאר פרטי.
 const fs = require('fs');
+const { readXlsx } = require('./xlsx-read');
 const path = require('path');
 
 const dir = process.argv[2];
@@ -17,6 +21,8 @@ const STOP = new Set(('a an the am is are was were be been being do does did i y
 const CAPITAL_OK = /^(monday|tuesday|wednesday|thursday|friday|saturday|sunday|january|february|march|april|may|june|july|august|september|october|november|december|english)$/i;
 
 function clean(en) {
+  // "a good/great deal" — ביטוי עם חלופות; לא ניתן לחתוך בלי לשבור אותו
+  if (/\S+\/\S+/.test(en) && /\s/.test(en.replace(/\(.*?\)/g, '').trim())) return '';
   return en.replace(/\(.*?\)/g, ' ').split(/[,/]/)[0].replace(/[…!?.]+$/g, '').replace(/\s+/g, ' ').trim();
 }
 function keep(en) {
@@ -28,16 +34,22 @@ function keep(en) {
   return true;
 }
 
-function parseBand1(text) {
+// גיליון של משרד החינוך: עמודה A = ערך, B = חלק דיבר, "Meaning" = הבהרת המשמעות
+function parseBandSheet(sheet) {
   const out = [];
-  for (let line of text.split('\n')) {
-    line = line.trim();
-    if (!line || /^(Foundation Level|Learners have|--- page|pages:)/.test(line)) continue;
-    if (/[.!?…]$/.test(line) && /\s/.test(line)) continue;           // משפט דוגמה
-    const posM = /\((n|v|adj|adv)\)/.exec(line);
-    const en = clean(line);
+  let meaningCol = null;
+  for (const row of sheet.rows) {
+    const cell = c => (row.find(x => x.col === c) || {}).val || '';
+    const head = row.find(x => x.val.trim() === 'Meaning');
+    if (head) { meaningCol = head.col; continue; }
+    const raw = cell('A').trim();
+    if (!raw || /^(Entry|Phrasal verbs|PRE-BAND|BAND I)/.test(raw)) continue;
+    const en = clean(raw);
     if (!keep(en)) continue;
-    out.push({ en: /^[A-Z]/.test(en) && CAPITAL_OK.test(en) ? en : en.toLowerCase(), pos: posM ? posM[1] : '' });
+    let pos = cell('B').split(/[ ,]+/).filter(Boolean)[0] || '';
+    if (pos === 'aux') pos = 'v';
+    const meaning = meaningCol ? cell(meaningCol).replace(/s+/g, ' ').trim() : '';
+    out.push({ en: /^[A-Z]/.test(en) && CAPITAL_OK.test(en) ? en : en.toLowerCase(), pos, ...(meaning ? { meaning } : {}) });
   }
   return out;
 }
@@ -73,14 +85,22 @@ function dedupe(list, seen = new Set()) {
   return list.filter(w => { const k = w.en.toLowerCase(); if (seen.has(k)) return false; seen.add(k); return true; });
 }
 
-const band = fs.readFileSync(path.join(dir, 'band1.txt'), 'utf8');
+const band1 = readXlsx(path.join(dir, 'x1'));
+const band2 = readXlsx(path.join(dir, 'x2'));
+const sheet = (wb, name) => { const x = wb.find(s => s.name === name); if (!x) throw new Error('missing sheet ' + name); return dedupe(parseBandSheet(x)); };
 const yle = fs.readFileSync(path.join(dir, 'flyers.txt'), 'utf8');
 const starters = dedupe(parseCambridge(yle, '4 Pre A1 Starters A–Z wordlist', ['8 A1 Movers A–Z wordlist']));
 const movers = dedupe(parseCambridge(yle, '8 A1 Movers A–Z wordlist', ['12 A2 Flyers A–Z wordlist']));
 const flyers = dedupe(parseCambridge(yle, '12 A2 Flyers A–Z wordlist', ['alphabetic vocabulary list', 'Pre A1 Starters and A1 Movers']));
 
+const MOE1 = 'https://meyda.education.gov.il/files/Mazkirut_Pedagogit/English/CurriculumFilesAugust21/LexicalBand1.xlsx';
+const MOE2 = 'https://meyda.education.gov.il/files/Mazkirut_Pedagogit/English/CurriculumFilesAugust21/LexicalBand2.xlsx';
 const lists = [
-  { id: 'band1', name: 'משרד החינוך — Band I (עד סוף כיתה ו׳)', source: 'https://meyda.education.gov.il/files/Mazkirut_Pedagogit/English/band11July18.pdf', level: 'basic', words: dedupe(parseBand1(band)) },
+  { id: 'preband1', name: 'משרד החינוך — Pre-Band I (תחילת היסודי)', source: MOE1, level: 'beginner', words: sheet(band1, 'Pre-Band I') },
+  { id: 'band1core1', name: 'משרד החינוך — Band I Core I (יסודי)', source: MOE1, level: 'basic', words: sheet(band1, 'Band I Core I') },
+  { id: 'band1core2', name: 'משרד החינוך — Band I Core II (יסודי, עד סוף ו׳)', source: MOE1, level: 'basic', words: sheet(band1, 'Band I Core II') },
+  { id: 'band2core1', name: 'משרד החינוך — Band II Core I (חטיבת ביניים)', source: MOE2, level: 'intermediate', words: sheet(band2, 'Band II Core I') },
+  { id: 'band2core2', name: 'משרד החינוך — Band II Core II (עד סוף ט׳)', source: MOE2, level: 'advanced', words: sheet(band2, 'Band II Core II') },
   { id: 'starters', name: 'Cambridge Pre A1 Starters', source: 'https://www.cambridgeenglish.org/', level: 'beginner', words: starters },
   { id: 'movers', name: 'Cambridge A1 Movers', source: 'https://www.cambridgeenglish.org/', level: 'basic', words: movers },
   { id: 'flyers', name: 'Cambridge A2 Flyers', source: 'https://www.cambridgeenglish.org/', level: 'intermediate', words: flyers }

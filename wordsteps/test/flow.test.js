@@ -292,7 +292,7 @@ test('מחיקת פרופיל מוחקת את נתוני הלמידה', async ()
 
 test('ייבוא מרשימה רשמית בלי AI: איור ותרגום מ-ARASAAC, משפט מ-Tatoeba, מסיחים מהמאגר', async () => {
   const lists = await ok(admin('GET', 'wordlists'));
-  assert.deepEqual(lists.map(l => l.id), ['band1', 'starters', 'movers', 'flyers']);
+  assert.deepEqual(lists.map(l => l.id), ['preband1', 'band1core1', 'band1core2', 'band2core1', 'band2core2', 'starters', 'movers', 'flyers']);
   const starters = lists.find(l => l.id === 'starters');
   assert.ok(starters.words.find(w => w.en === 'apple').inBank, 'מילה שכבר במאגר מסומנת');
   const HE = { banana: 'בננה', lemon: 'לימון', kite: 'עפיפון' };

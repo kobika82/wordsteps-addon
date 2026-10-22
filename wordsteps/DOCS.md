@@ -32,7 +32,7 @@
 
 | מה | מקור | רישיון |
 |---|---|---|
-| רשימות המילים | משרד החינוך — Band I (עד סוף כיתה ו׳); Cambridge Pre A1 Starters, A1 Movers, A2 Flyers | רשימות מילים בלבד |
+| רשימות המילים | משרד החינוך — Pre-Band I, Band I (Core I+II), Band II (Core I+II); Cambridge Pre A1 Starters, A1 Movers, A2 Flyers | רשימות משרד החינוך מוגנות ("אין לשכפל") — לכן הריפו פרטי |
 | איור + תרגום לעברית | [ARASAAC](https://arasaac.org) — אותו איור מתויג באנגלית ובעברית | CC BY-NC-SA 4.0 (ממשלת אראגון, Sergio Palao) — לשימוש לא מסחרי |
 | משפט דוגמה ותרגומו | [Tatoeba](https://tatoeba.org) — משפטים שתורגמו בידי מתנדבים | CC BY 2.0 FR |
 | תשובות שגויות בתרגילים | מילים אחרות מהמאגר (מאותו נושא / חלק דיבר) | — |
