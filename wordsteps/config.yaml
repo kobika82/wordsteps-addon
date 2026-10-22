@@ -1,5 +1,5 @@
 name: WordSteps
-version: "0.1.0"
+version: "0.1.1"
 slug: wordsteps
 description: לימוד אוצר מילים באנגלית לילדים — שיעור יומי קצר באישור הורה
 arch:
@@ -18,8 +18,8 @@ homeassistant_api: true
 hassio_api: true
 options:
   gemini_api_key: ""
-  gemini_model: gemini-2.5-flash
-  gemini_image_model: gemini-2.5-flash-image
+  gemini_model: gemini-3.8-flash
+  gemini_image_model: gemini-3.8-flash-image
   admin_users: []
 schema:
   gemini_api_key: password?

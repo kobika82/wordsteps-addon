@@ -9,7 +9,7 @@
 2. להתקין את **WordSteps** ולהפעיל. הפאנל יופיע בתפריט הצד של כל המשתמשים (כולל הילדים).
 3. בלשונית **Configuration**:
    - `gemini_api_key` — מפתח מ-[Google AI Studio](https://aistudio.google.com/apikey). בלעדיו אין הצעת מילים אוטומטית (אפשר להוסיף מילים ידנית).
-   - `gemini_model` / `gemini_image_model` — שמות המודלים (ברירת מחדל `gemini-2.5-flash` ו-`gemini-2.5-flash-image`).
+   - `gemini_model` / `gemini_image_model` — שמות המודלים (ברירת מחדל `gemini-3.8-flash` ו-`gemini-3.8-flash-image`; אם Google מוציאה מודל משימוש, התוסף עובר אוטומטית לגרסה העדכנית).
    - `admin_users` — שמות משתמש של HA שיהיו מנהלים, אם לא מזוהים אוטומטית. מנהלי HA מזוהים כמנהלים בלי הגדרה.
    - `panel_url` — רק אם הקישור בהתראה לא פותח את האפליקציה (ברירת המחדל נקבעת אוטומטית ל-`/hassio/ingress/<slug>`).
 

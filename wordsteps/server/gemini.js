@@ -5,12 +5,47 @@ const { HttpError } = require('./util');
 const { LEVEL_HE, TOPICS } = require('./content');
 
 const API = 'https://generativelanguage.googleapis.com/v1beta/models/';
-let cfg = { apiKey: '', model: 'gemini-2.5-flash', imageModel: 'gemini-2.5-flash-image' };
-function configure(c) { cfg = { ...cfg, ...Object.fromEntries(Object.entries(c).filter(([, v]) => v)) }; }
+let cfg = { apiKey: '', model: 'gemini-3.8-flash', imageModel: 'gemini-3.8-flash-image' };
+// המודל שבפועל בשימוש — מתעדכן אוטומטית כש-Google מוציאה מודל משימוש
+const active = { text: null, image: null };
+function configure(c) { cfg = { ...cfg, ...Object.fromEntries(Object.entries(c).filter(([, v]) => v)) }; active.text = active.image = null; }
 function isConfigured() { return !!cfg.apiKey; }
-function info() { return { configured: isConfigured(), model: cfg.model, imageModel: cfg.imageModel }; }
+function modelFor(kind) { return active[kind] || (kind === 'image' ? cfg.imageModel : cfg.model); }
+function info() { return { configured: isConfigured(), model: modelFor('text'), imageModel: modelFor('image') }; }
 
-async function call(model, body, timeoutMs = 90000) {
+// בחירת המודל העדכני ביותר מרשימת המודלים של החשבון
+const PATTERNS = {
+  text: /^gemini-(\d+(?:\.\d+)?)-flash$/,
+  image: /^gemini-(\d+(?:\.\d+)?)-flash-image(?:-preview)?$/
+};
+function pickLatest(names, kind) {
+  const best = names.map(n => ({ n, m: PATTERNS[kind].exec(n) })).filter(x => x.m)
+    .sort((a, b) => Number(b.m[1]) - Number(a.m[1]) || a.n.length - b.n.length)[0];
+  if (best) return best.n;
+  return kind === 'image' ? names.find(n => /flash.*image/.test(n)) : names.find(n => /^gemini-[\d.]+-flash/.test(n) && !/image|tts|audio|live|lite/.test(n));
+}
+async function listModels() {
+  const res = await fetch(`${API.replace(/\/$/, '')}?pageSize=1000`, { headers: { 'x-goog-api-key': cfg.apiKey }, signal: AbortSignal.timeout(20000) });
+  if (!res.ok) return [];
+  const j = await res.json();
+  return (j.models || []).filter(m => (m.supportedGenerationMethods || []).includes('generateContent')).map(m => m.name.replace(/^models\//, ''));
+}
+
+async function call(kind, body, timeoutMs = 90000) {
+  try {
+    return await callModel(modelFor(kind), body, timeoutMs);
+  } catch (e) {
+    if (e.status !== 404) throw e;
+    // המודל הוצא משימוש או לא קיים — מחפשים מחליף ומנסים שוב פעם אחת
+    const replacement = pickLatest(await listModels().catch(() => []), kind);
+    if (!replacement || replacement === modelFor(kind)) throw e;
+    console.warn(`Gemini model ${modelFor(kind)} unavailable, switching to ${replacement}`);
+    active[kind] = replacement;
+    return callModel(replacement, body, timeoutMs);
+  }
+}
+
+async function callModel(model, body, timeoutMs) {
   if (!cfg.apiKey) throw new HttpError(503, 'Gemini לא מוגדר — יש להזין מפתח API בהגדרות התוסף');
   const ctrl = new AbortController();
   const t = setTimeout(() => ctrl.abort(), timeoutMs);
@@ -28,7 +63,7 @@ async function call(model, body, timeoutMs = 90000) {
   if (!res.ok) {
     let msg = text.slice(0, 300);
     try { msg = JSON.parse(text).error.message; } catch (e) { /* טקסט גולמי */ }
-    throw new HttpError(502, `Gemini החזיר שגיאה ${res.status}: ${msg}`);
+    throw Object.assign(new HttpError(502, `Gemini החזיר שגיאה ${res.status}: ${msg}`), { status: res.status });
   }
   return JSON.parse(text);
 }
@@ -97,7 +132,7 @@ ${topicLine}
 Suggest exactly ${count} useful, frequent, age-appropriate English words for this level, ordered from easier to harder.
 Do NOT include any of these words (already known or already in the bank): ${exclude.slice(0, 600).join(', ') || '(none)'}.
 ${RULES}`;
-  const json = await call(cfg.model, {
+  const json = await call('text', {
     contents: [{ role: 'user', parts: [{ text: prompt }] }],
     generationConfig: {
       temperature: 0.8, responseMimeType: 'application/json',
@@ -119,7 +154,7 @@ async function completeWord({ en, level, age }) {
 Child age: ${age || 'about 9'}. English level: ${level} (${LEVEL_HE[level] || ''}).
 Return exactly one item in "words".
 ${RULES}`;
-  const json = await call(cfg.model, {
+  const json = await call('text', {
     contents: [{ role: 'user', parts: [{ text: prompt }] }],
     generationConfig: {
       temperature: 0.4, responseMimeType: 'application/json',
@@ -134,7 +169,7 @@ ${RULES}`;
 // איור ידידותי לילדים. מחזיר base64 — הלקוח מקטין ושומר
 async function generateImage({ en, he }) {
   const prompt = `A simple, friendly, colorful illustration for a children's vocabulary card showing the meaning of the English word "${en}"${he ? ` (Hebrew: ${he})` : ''}. One clear subject on a plain light background, no text, no letters, no words in the image.`;
-  const json = await call(cfg.imageModel, {
+  const json = await call('image', {
     contents: [{ role: 'user', parts: [{ text: prompt }] }],
     generationConfig: { responseModalities: ['IMAGE'] }
   }, 120000);
@@ -146,8 +181,8 @@ async function generateImage({ en, he }) {
 }
 
 async function test() {
-  const json = await call(cfg.model, { contents: [{ role: 'user', parts: [{ text: 'Reply with the single word: ok' }] }] }, 30000);
+  const json = await call('text', { contents: [{ role: 'user', parts: [{ text: 'Reply with the single word: ok' }] }] }, 30000);
   return (json?.candidates?.[0]?.content?.parts?.[0]?.text || '').trim();
 }
 
-module.exports = { configure, isConfigured, info, suggestWords, completeWord, generateImage, test, fixWord };
+module.exports = { configure, isConfigured, info, pickLatest, suggestWords, completeWord, generateImage, test, fixWord };

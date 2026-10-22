@@ -60,3 +60,25 @@ test('שעה מקומית לפי אזור הזמן של הבית', () => {
   assert.equal(p.dow, 2);
   setNow(null);
 });
+
+test('Gemini: מודל שהוצא משימוש מוחלף אוטומטית בעדכני ביותר', async () => {
+  const gemini = require('../server/gemini');
+  const names = ['gemini-2.0-flash', 'gemini-3.8-flash', 'gemini-3.8-flash-lite', 'gemini-3.10-flash-tts', 'gemini-3.8-flash-image-preview', 'gemini-3.5-flash'];
+  assert.equal(gemini.pickLatest(names, 'text'), 'gemini-3.8-flash');
+  assert.equal(gemini.pickLatest(names, 'image'), 'gemini-3.8-flash-image-preview');
+  assert.equal(gemini.pickLatest(['gemini-3.8-flash', 'gemini-3.10-flash'], 'text'), 'gemini-3.10-flash');
+  const realFetch = global.fetch;
+  const calls = [];
+  global.fetch = async (url) => {
+    calls.push(url);
+    if (url.includes('?pageSize')) return new Response(JSON.stringify({ models: names.map(n => ({ name: 'models/' + n, supportedGenerationMethods: ['generateContent'] })) }));
+    if (url.includes('gemini-2.5-flash:')) return new Response(JSON.stringify({ error: { message: 'no longer available' } }), { status: 404 });
+    return new Response(JSON.stringify({ candidates: [{ content: { parts: [{ text: 'ok' }] } }] }));
+  };
+  try {
+    gemini.configure({ apiKey: 'k', model: 'gemini-2.5-flash' });
+    assert.equal(await gemini.test(), 'ok');
+    assert.equal(gemini.info().model, 'gemini-3.8-flash');
+    assert.ok(calls.at(-1).includes('gemini-3.8-flash:generateContent'));
+  } finally { global.fetch = realFetch; }
+});
