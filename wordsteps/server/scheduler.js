@@ -1,7 +1,7 @@
 'use strict';
-// מתזמן: הכנת שיעורי המחר והודעה למנהל, התראה יומית לכל ילד ותזכורת אם לא השלים.
+// מתזמן: הודעה יומית למנהל (רק כשיש מילים לאישור), התראה יומית לכל ילד ותזכורת אם לא השלים.
 // רץ כל 30 שניות. כל שליחה נרשמת ביומן ההתראות, כולל כשלונות.
-const { localParts, addDays, toMinutes, now } = require('./util');
+const { localParts, toMinutes, now } = require('./util');
 const ha = require('./ha');
 const L = require('./lessons');
 
@@ -81,25 +81,27 @@ async function childTick(store, child, p) {
   }
 }
 
+// הודעה יומית למנהל — רק כשצריך לעשות משהו: מילים שממתינות לאישור, או ילד שנגמרות לו המילים המאושרות
+const LOW_DAYS = 3;
+function adminDigest(store) {
+  const drafts = store.data.words.filter(w => w.status === 'draft').length;
+  const low = store.data.children.filter(c => c.active && c.newPerDay > 0).map(c => ({ c, p: L.poolInfo(store, c) }))
+    .filter(x => x.p.days < LOW_DAYS);
+  const parts = [];
+  if (low.length) parts.push(low.map(x => x.p.available ? `ל${x.c.name} נשארו מילים מאושרות ל-${x.p.days || 'פחות מיום'} ימים` : `ל${x.c.name} אין מילים מאושרות חדשות`).join(' · '));
+  if (drafts) parts.push(`${drafts} מילים ממתינות לאישור`);
+  return parts.length ? parts.join('. ') + '.' : '';
+}
+
 async function prepTick(store, p) {
   const s = store.data.settings;
   const at = toMinutes(s.prepTime);
   if (at == null || p.minutes < at || s.lastPrepDate === p.date) return;
   s.lastPrepDate = p.date;
   store.save();
-  const from = addDays(p.date, 1);
-  const days = Math.max(1, Math.min(14, Number(s.daysAhead) || 1));
-  try {
-    await L.prepareRange(store, { fromDate: from, days });
-  } catch (e) {
-    L.notice(store, 'הכנת השיעורים האוטומטית נכשלה: ' + e.message);
-  }
-  const pending = store.data.lessons.filter(l => l.kind === 'daily' && l.status === 'pending' && l.date >= from);
-  if (pending.length && s.adminNotifyService) {
-    await send(store, {
-      kind: 'admin', service: s.adminNotifyService, title: 'WordSteps — שיעורים לאישור',
-      message: `${pending.length} שיעורים מוכנים לבדיקה ואישור. לחצו לפתיחת מסך האישור.`
-    });
+  const message = adminDigest(store);
+  if (message && s.adminNotifyService) {
+    await send(store, { kind: 'admin', service: s.adminNotifyService, title: 'WordSteps — מילים לאישור', message });
   }
 }
 
@@ -121,4 +123,4 @@ function start(store) {
   return setInterval(() => tick(store).catch(e => console.error(e)), 30000);
 }
 
-module.exports = { start, tick, send, setPanelUrl, getPanelUrl, dailyMessage };
+module.exports = { start, tick, send, setPanelUrl, getPanelUrl, dailyMessage, adminDigest };

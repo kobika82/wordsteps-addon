@@ -17,7 +17,8 @@ function emptyData() {
       imageSource: 'arasaac',     // arasaac (ואז openverse) | openverse | gemini | none — הצעת תמונה אוטומטית למילים חדשות
       notifyReviewDays: true,     // לשלוח התראה גם ביום שיש בו רק שיעור חזרה
       adminUserIds: [],           // מנהלים נוספים שהוגדרו מתוך האפליקציה
-      migratedArasaac: true
+      migratedArasaac: true,
+      migratedAutoLessons: true
     },
     users: {},          // משתמשי HA שנכנסו לאפליקציה: { id: {id,name,displayName,lastSeen} }
     children: [],
@@ -48,6 +49,11 @@ class Store {
       const data = { ...base, ...d, seq: { ...base.seq, ...d.seq }, settings: { ...base.settings, ...d.settings } };
       // 0.1.3: ARASAAC הפך לברירת המחדל לתמונות (המשתמש בחר בכך)
       if (!(d.settings && d.settings.migratedArasaac)) { if (data.settings.imageSource === 'openverse') data.settings.imageSource = 'arasaac'; data.settings.migratedArasaac = true; }
+      // 0.2.0: שיעורים נבנים אוטומטית ממילים מאושרות. שיעורים יומיים שהוכנו מראש ולא התחילו — נמחקים ונבנים מחדש.
+      if (!(d.settings && d.settings.migratedAutoLessons)) {
+        data.lessons = data.lessons.filter(l => !(l.kind === 'daily' && (l.status === 'pending' || l.status === 'approved')));
+        data.settings.migratedAutoLessons = true;
+      }
       return data;
     } catch (e) {
       if (e.code !== 'ENOENT') {

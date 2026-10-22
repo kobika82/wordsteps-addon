@@ -1,7 +1,7 @@
 'use strict';
-// הכנת שיעורים, אישור מנהל, בניית רצף התרגילים, בדיקת תשובות וסיכום שיעור.
-// כלל היסוד: ילד רואה רק תוכן של פריטים שאושרו. מילים לחזרה נלקחות רק ממאגר מאושר.
-const { today, addDays, dowOf, shuffle, normalizeAnswer, levenshtein, HttpError, now } = require('./util');
+// בניית השיעור היומי, רצף התרגילים, בדיקת תשובות וסיכום שיעור.
+// כלל היסוד: המנהל מאשר מילים במאגר, והילד רואה רק מילים מאושרות — בשיעור החדש ובחזרות.
+const { today, dowOf, shuffle, normalizeAnswer, levenshtein, HttpError, now } = require('./util');
 const { pickContent, sanitizeContent, missingFields, DEFAULT_EXERCISES, EXERCISE_TYPES, LEVELS } = require('./content');
 const srs = require('./srs');
 const gemini = require('./gemini');
@@ -18,21 +18,17 @@ function learnedIds(store, childId) {
   return new Set(Object.keys(store.childProgress(childId)).map(Number));
 }
 
-// מילים ששמורות לשיעורים עתידיים/פתוחים של הילד (כדי לא לשבץ אותה מילה פעמיים)
-function reservedIds(store, childId, fromDate, exceptLessonId) {
+// מילים חדשות ששובצו בשיעור יומי פתוח של הילד (היום, או שהתחיל ולא הסתיים) — כדי לא לשבץ אותה מילה פעמיים.
+// שיעור שהוחמץ לא שומר את מילותיו: הן חוזרות לתור.
+function reservedIds(store, childId) {
   const s = new Set();
+  const d = today();
   for (const l of store.data.lessons) {
-    if (l.childId !== childId || l.id === exceptLessonId || l.kind !== 'daily') continue;
-    if (l.status === 'completed' || l.date < fromDate) continue;
+    if (l.childId !== childId || l.kind !== 'daily' || l.status === 'completed') continue;
+    if (l.status !== 'in_progress' && l.date < d) continue;
     for (const it of l.items) if (it.role === 'new') s.add(it.wordId);
   }
   return s;
-}
-
-function lessonEditable(l) {
-  if (l.session || l.status === 'completed' || l.status === 'in_progress') {
-    throw new HttpError(409, 'השיעור כבר התחיל או הושלם — אי אפשר לשנות אותו');
-  }
 }
 
 function notice(store, text, childId) {
@@ -100,178 +96,58 @@ async function generateWords(store, { count, level, topic, age }) {
   return added;
 }
 
-// ---------- הכנת שיעור ----------
+// ---------- בניית השיעור היומי (אוטומטית, רק ממילים מאושרות) ----------
+// המנהל מאשר מילים במאגר; השיעור נבנה מעצמו ביום שבו הילד לומד. אין אישור שיעורים ואין שיעורים מוכנים מראש.
 function isStudyDay(child, date) { return (child.days || []).includes(dowOf(date)); }
 
-function candidateWords(store, child, exclude) {
+function candidateWords(store, child, exclude = new Set()) {
   const topics = child.topics || [];
   return store.data.words
-    .filter(w => w.level === child.level && !exclude.has(w.id) && (!topics.length || topics.includes(w.topic)))
-    // קודם מילים שכבר אושרו במאגר, אחר כך טיוטות; בכל קבוצה — מהקל לקשה
-    .sort((a, b) => (a.status === 'approved' ? 0 : 1) - (b.status === 'approved' ? 0 : 1) || a.difficulty - b.difficulty || a.id - b.id);
+    .filter(w => w.status === 'approved' && w.level === child.level && !exclude.has(w.id) && (!topics.length || topics.includes(w.topic)))
+    .sort((a, b) => a.difficulty - b.difficulty || a.id - b.id);
 }
 
-async function prepareLesson(store, child, date, { force = false } = {}) {
+// כמה מילים מאושרות שהילד עוד לא למד נשארו — ולכמה ימי לימוד הן מספיקות
+function poolInfo(store, child) {
+  const exclude = new Set([...learnedIds(store, child.id), ...reservedIds(store, child.id)]);
+  const available = candidateWords(store, child, exclude).length;
+  const days = child.newPerDay ? Math.floor(available / child.newPerDay) : null;
+  const drafts = store.data.words.filter(w => w.status === 'draft' && w.level === child.level).length;
+  return { available, days, drafts };
+}
+
+// יוצר (פעם אחת) את השיעור של היום. סינכרוני — כך שאין מצב של שני שיעורים לאותו יום.
+function ensureDailyLesson(store, child, date = today()) {
   const existing = store.data.lessons.find(l => l.childId === child.id && l.date === date && l.kind === 'daily');
-  if (existing && !force) return { lesson: existing, created: false };
-  if (existing) {
-    lessonEditable(existing);
-    store.data.lessons = store.data.lessons.filter(l => l !== existing);
+  if (existing) return existing;
+  if (!child.active || !isStudyDay(child, date)) return null;
+  const exclude = new Set([...learnedIds(store, child.id), ...reservedIds(store, child.id)]);
+  const pool = candidateWords(store, child, exclude);
+  if (!pool.length) {
+    notice(store, `${child.name}: אין מילים מאושרות חדשות ברמה שלו — היום יהיה רק תרגול חזרה. אשרו מילים במאגר.`, child.id);
+    return null;
   }
-  const warnings = [];
-  const exclude = new Set([...learnedIds(store, child.id), ...reservedIds(store, child.id, today(), existing?.id)]);
-  let pool = candidateWords(store, child, exclude);
-  const need = child.newPerDay;
-
-  if (pool.length < need && gemini.isConfigured()) {
-    const topics = child.topics || [];
-    const topic = topics.length ? topics[Math.floor(Math.random() * topics.length)] : '';
-    try {
-      await generateWords(store, { count: need - pool.length + 3, level: child.level, topic, age: child.age });
-      pool = candidateWords(store, child, exclude);
-    } catch (e) {
-      warnings.push('יצירת מילים ב-Gemini נכשלה: ' + e.message);
-    }
-  } else if (pool.length < need) {
-    warnings.push('Gemini לא מוגדר — נבחרו רק מילים קיימות מהמאגר');
-  }
-  if (pool.length < need) {
-    const msg = `${child.name}: אין מספיק מילים חדשות מתאימות לשיעור ${date} (נמצאו ${pool.length} מתוך ${need}). הוסיפו מילים למאגר או הרחיבו את הנושאים.`;
-    warnings.push(msg);
-    notice(store, msg, child.id);
-  }
-
-  const items = pool.slice(0, need).map(w => ({
-    id: store.nextId('item'), wordId: w.id, role: 'new', content: pickContent(w),
-    // מילה שכבר אושרה במאגר מגיעה מאושרת; טיוטה מחייבת אישור
-    approved: w.status === 'approved'
+  const items = pool.slice(0, child.newPerDay).map(w => ({
+    id: store.nextId('item'), wordId: w.id, role: 'new', content: pickContent(w), approved: true
   }));
-  const reviewPreview = srs.selectReview(store.childProgress(child.id), child.reviewPerDay, date, new Set(items.map(i => i.wordId)));
-
   const lesson = {
-    id: store.nextId('lesson'), childId: child.id, date, kind: 'daily', status: 'pending',
-    items, reviewPreview, warnings, createdAt: nowIso(), approvedAt: null,
-    session: null, completedAt: null, summary: null, notified: { daily: null, reminder: null }
+    id: store.nextId('lesson'), childId: child.id, date, kind: 'daily', status: 'approved',
+    items, warnings: [], createdAt: nowIso(), approvedAt: nowIso(),
+    session: null, completedAt: null, summary: null
   };
   store.data.lessons.push(lesson);
   store.save();
-  return { lesson, created: true };
-}
-
-// הכנת שיעורים לכל הילדים הפעילים לטווח ימים
-async function prepareRange(store, { fromDate, days, childId }) {
-  const out = [];
-  for (const child of store.data.children) {
-    if (!child.active || (childId && child.id !== Number(childId))) continue;
-    for (let i = 0; i < days; i++) {
-      const date = addDays(fromDate, i);
-      if (!isStudyDay(child, date)) continue;
-      const r = await prepareLesson(store, child, date);
-      if (r.created) out.push(r.lesson);
-    }
-  }
-  return out;
-}
-
-// ---------- עריכה ואישור (מנהל) ----------
-function invalidate(lesson) {
-  if (lesson.status === 'approved') { lesson.status = 'pending'; lesson.approvedAt = null; }
-}
-
-function getItem(lesson, itemId) {
-  const it = lesson.items.find(i => i.id === Number(itemId));
-  if (!it) throw new HttpError(404, 'הפריט לא נמצא');
-  return it;
-}
-
-function updateItem(store, lesson, itemId, input) {
-  lessonEditable(lesson);
-  const it = getItem(lesson, itemId);
-  const next = sanitizeContent(input, it.content);
-  if (JSON.stringify(next) !== JSON.stringify(it.content)) {
-    it.content = next;
-    it.approved = false;          // שינוי בפריט מחייב אישור מחדש
-    invalidate(lesson);
-  }
-  store.save();
-  return it;
-}
-
-function approveItem(store, lesson, itemId, child) {
-  lessonEditable(lesson);
-  const it = getItem(lesson, itemId);
-  const miss = missingFields(it.content, child.exerciseTypes);
-  if (miss.length) throw new HttpError(400, `לא ניתן לאשר את "${it.content.en}" — חסר: ${miss.join(', ')}`);
-  it.approved = true;
-  store.save();
-  return it;
-}
-
-function removeItem(store, lesson, itemId) {
-  lessonEditable(lesson);
-  getItem(lesson, itemId);
-  lesson.items = lesson.items.filter(i => i.id !== Number(itemId));
-  invalidate(lesson);
-  store.save();
-}
-
-function addItem(store, lesson, wordId) {
-  lessonEditable(lesson);
-  const w = store.word(wordId);
-  if (!w) throw new HttpError(404, 'המילה לא נמצאה במאגר');
-  if (lesson.items.some(i => i.wordId === w.id)) throw new HttpError(409, 'המילה כבר בשיעור');
-  const it = { id: store.nextId('item'), wordId: w.id, role: 'new', content: pickContent(w), approved: false };
-  lesson.items.push(it);
-  invalidate(lesson);
-  store.save();
-  return it;
-}
-
-function replaceItem(store, lesson, itemId, wordId) {
-  lessonEditable(lesson);
-  const it = getItem(lesson, itemId);
-  const w = store.word(wordId);
-  if (!w) throw new HttpError(404, 'המילה לא נמצאה במאגר');
-  if (lesson.items.some(i => i.wordId === w.id && i.id !== it.id)) throw new HttpError(409, 'המילה כבר בשיעור');
-  Object.assign(it, { wordId: w.id, content: pickContent(w), approved: false });
-  invalidate(lesson);
-  store.save();
-  return it;
-}
-
-// מילה חלופית מוצעת: הבאה בתור במאגר (או חדשה מ-Gemini)
-async function suggestReplacement(store, lesson, child) {
-  const exclude = new Set([...learnedIds(store, child.id), ...reservedIds(store, child.id, today()), ...lesson.items.map(i => i.wordId)]);
-  let pool = candidateWords(store, child, exclude);
-  if (!pool.length && gemini.isConfigured()) {
-    await generateWords(store, { count: 3, level: child.level, topic: (child.topics || [])[0] || '', age: child.age });
-    pool = candidateWords(store, child, exclude);
-  }
-  if (!pool.length) throw new HttpError(404, 'אין מילה חלופית מתאימה במאגר');
-  return pool[0];
-}
-
-function approveLesson(store, lesson, child) {
-  lessonEditable(lesson);
-  if (!lesson.items.some(i => i.role === 'new') && child.newPerDay > 0) {
-    throw new HttpError(400, 'בשיעור אין מילים חדשות — הוסיפו מילים או לחצו "הכנה מחדש"');
-  }
-  const problems = [];
-  for (const it of lesson.items) {
-    const miss = missingFields(it.content, child.exerciseTypes);
-    if (miss.length) problems.push(`"${it.content.en || '?'}": ${miss.join(', ')}`);
-  }
-  if (problems.length) throw new HttpError(400, 'לא ניתן לאשר — חסר תוכן: ' + problems.join(' | '));
-  for (const it of lesson.items) {
-    it.approved = true;
-    // התוכן המאושר מתעדכן גם במאגר, כדי שהחזרות בעתיד ישתמשו בו
-    const w = store.word(it.wordId);
-    if (w) { Object.assign(w, pickContent(it.content), { status: 'approved', updatedAt: nowIso() }); }
-  }
-  lesson.status = 'approved';
-  lesson.approvedAt = nowIso();
-  store.save();
   return lesson;
+}
+
+// אישור מילה במאגר: מה שנדרש כדי שיהיה כרטיס ותרגיל בחירת תרגום
+function approveWord(store, w) {
+  const miss = missingFields(w, ['mc']);
+  if (miss.length) throw new HttpError(400, `לא ניתן לאשר את "${w.en}" — חסר: ${miss.join(', ')}`);
+  w.status = 'approved';
+  w.updatedAt = nowIso();
+  store.save();
+  return w;
 }
 
 // ---------- בניית רצף התרגילים ----------
@@ -405,9 +281,13 @@ function approvedReviewWords(store, ids) {
 // מצב "היום" של הילד: שיעור להמשך, שיעור מאושר להתחלה, הושלם, או חזרה בלבד
 function homeState(store, child) {
   const date = today();
+  ensureDailyLesson(store, child, date);
   const mine = childLessons(store, child.id);
-  const inProgress = mine.filter(l => l.status === 'in_progress').sort((a, b) => b.id - a.id)[0];
   const daily = mine.find(l => l.kind === 'daily' && l.date === date);
+  // ממשיכים שיעור יומי שלא הסתיים (גם מאתמול); סבב חזרה/תרגול שלא הסתיים — רק אם הוא מהיום ואין שיעור יומי חדש שמחכה
+  const open = mine.filter(l => l.status === 'in_progress').sort((a, b) => b.id - a.id);
+  const inProgress = open.find(l => l.kind === 'daily')
+    || (!(daily && daily.status === 'approved') ? open.find(l => l.date === date) : null);
   const learned = Object.values(store.childProgress(child.id)).filter(r => r.sessions > 0).length;
   const canReview = learned >= 3;
   let state;
@@ -546,11 +426,20 @@ function complete(store, child, lessonId) {
 }
 
 // ---------- תצוגה מקדימה למנהל (לא נשמרת ולא משפיעה על התקדמות) ----------
+// מראה איך ייראה השיעור הבא של הילד לפי המצב הנוכחי של המאגר וההתקדמות שלו
 const previews = new Map();
-function startPreview(store, lesson, child) {
-  const items = lesson.items.slice();
-  const extra = approvedReviewWords(store, lesson.reviewPreview || []).map(w => ({ wordId: w.id, role: 'review', content: pickContent(w) }));
-  const all = items.concat(extra);
+function nextLessonItems(store, child) {
+  const date = today();
+  const todays = store.data.lessons.find(l => l.childId === child.id && l.date === date && l.kind === 'daily' && l.status !== 'completed');
+  const newItems = todays ? todays.items.filter(i => i.role === 'new')
+    : candidateWords(store, child, new Set([...learnedIds(store, child.id), ...reservedIds(store, child.id)]))
+      .slice(0, child.newPerDay).map(w => ({ wordId: w.id, role: 'new', content: pickContent(w) }));
+  const revIds = srs.selectReview(store.childProgress(child.id), child.reviewPerDay, date, new Set(newItems.map(i => i.wordId)));
+  return newItems.concat(approvedReviewWords(store, revIds).map(w => ({ wordId: w.id, role: 'review', content: pickContent(w) })));
+}
+function startPreview(store, child) {
+  const all = nextLessonItems(store, child);
+  if (!all.length) throw new HttpError(404, 'אין עדיין מילים מאושרות לשיעור של הילד הזה');
   const token = Math.random().toString(36).slice(2);
   const session = { plan: buildPlan(store, child, all, store.childProgress(child.id)), step: 0, results: {} };
   const contents = Object.fromEntries(all.map(i => [i.wordId, i.content]));
@@ -571,8 +460,7 @@ function displayStatus(l) {
 }
 
 module.exports = {
-  addWordToBank, generateWords, proposeImage, prepareLesson, prepareRange, isStudyDay,
-  updateItem, approveItem, removeItem, addItem, replaceItem, suggestReplacement, approveLesson,
+  addWordToBank, generateWords, proposeImage, isStudyDay, candidateWords, poolInfo, ensureDailyLesson, approveWord,
   buildPlan, checkAnswer, answerStep, homeState, startLesson, answer, advance, complete,
-  startPreview, previewAnswer, displayStatus, lessonEditable, notice, EXERCISE_TYPES
+  nextLessonItems, startPreview, previewAnswer, displayStatus, notice, EXERCISE_TYPES
 };

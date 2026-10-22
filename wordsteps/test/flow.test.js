@@ -65,7 +65,9 @@ before(async () => {
 });
 after(() => { server.close(); store.flush(); fs.rmSync(DATA, { recursive: true, force: true }); });
 
-let child, lessonId;
+let child;
+const dailyLessons = date => store.data.lessons.filter(l => l.childId === child.id && l.kind === 'daily' && l.date === date);
+const wordId = en => store.data.words.find(w => w.en === en).id;
 
 test('זיהוי תפקידים: מנהל, משתמש לא משויך, וילד אחרי שיוך', async () => {
   assert.equal((await ok(admin('GET', 'me'))).role, 'admin');
@@ -78,7 +80,8 @@ test('ילד לא יכול לגשת לממשק הניהול', async () => {
   for (const p of ['dashboard', 'children', 'words', 'lessons', 'settings']) {
     assert.equal((await kid('GET', p)).status, 403, p);
   }
-  assert.equal((await kid('POST', 'lessons/prepare', { days: 1 })).status, 403);
+  assert.equal((await kid('POST', 'words/approve', { ids: [1] })).status, 403);
+  assert.equal((await kid('POST', `children/${child.id}/preview`)).status, 403);
 });
 
 test('מאגר מילים: הוספה, כפילות נדחית, חיפוש', async () => {
@@ -89,69 +92,62 @@ test('מאגר מילים: הוספה, כפילות נדחית, חיפוש', asy
   assert.ok(found.every(w => w.status === 'draft'));
 });
 
-test('שיעור שלא אושר לא מוצג לילד', async () => {
-  const r = await ok(admin('POST', 'lessons/prepare', { from: '2026-10-12', days: 1 }));
-  assert.equal(r.created, 1);
-  lessonId = r.lessons[0].id;
-  const d = await ok(admin('GET', `lessons/${lessonId}`));
-  assert.equal(d.status, 'pending');
-  assert.equal(d.items.length, 4);
-  assert.ok(d.items.every(i => !i.approved), 'מילים חדשות (טיוטות) לא מגיעות מאושרות');
+test('מילים שלא אושרו לא מגיעות לילד, ולא נוצר שיעור', async () => {
   const home = await ok(kid('GET', 'child/home'));
   assert.equal(home.mode, 'none');
-  assert.equal((await kid('POST', 'child/lesson/start', { lessonId })).status, 403);
+  assert.equal(dailyLessons('2026-10-12').length, 0);
 });
 
-test('אישור: פריט חסר נחסם, עריכה מחייבת אישור מחדש, אישור מלא מפרסם', async () => {
-  let d = await ok(admin('GET', `lessons/${lessonId}`));
-  const it = d.items[0];
-  // מחיקת התרגום חוסמת אישור
-  d = await ok(admin('PUT', `lessons/${lessonId}/items/${it.id}`, { he: '' }));
-  assert.equal((await admin('POST', `lessons/${lessonId}/items/${it.id}/approve`)).status, 400);
-  assert.equal((await admin('POST', `lessons/${lessonId}/approve`)).status, 400);
-  const original = FIX.find(f => f.en === it.content.en);
-  await ok(admin('PUT', `lessons/${lessonId}/items/${it.id}`, { he: original.he }));
-  d = await ok(admin('POST', `lessons/${lessonId}/approve`));
-  assert.equal(d.status, 'approved');
-  // שינוי בשיעור מאושר מחזיר אותו לאישור
-  d = await ok(admin('PUT', `lessons/${lessonId}/items/${it.id}`, { exampleHe: original.exampleHe + ' ' }));
-  assert.equal(d.status, 'approved', 'רווח בסוף מנוקה — אין שינוי אמיתי');
-  d = await ok(admin('PUT', `lessons/${lessonId}/items/${it.id}`, { exampleEn: 'A changed sentence.' }));
-  assert.equal(d.status, 'pending');
-  assert.equal(d.items.find(x => x.id === it.id).approved, false);
-  assert.equal((await ok(kid('GET', 'child/home'))).mode, 'none');
-  await ok(admin('PUT', `lessons/${lessonId}/items/${it.id}`, { exampleEn: original.exampleEn }));
-  d = await ok(admin('POST', `lessons/${lessonId}/approve`));
-  assert.equal(d.status, 'approved');
-  const bank = await ok(admin('GET', 'words?status=approved'));
-  assert.equal(bank.length, 4, 'אישור השיעור מאשר את המילים במאגר');
+test('אישור מילים: מילה חסרה נחסמת, אישור מרוכז מחזיר מה הצליח ומה לא', async () => {
+  const ids = FIX.slice(0, 8).map(f => wordId(f.en));
+  await ok(admin('PUT', `words/${ids[0]}`, { he: '' }));
+  assert.equal((await admin('PUT', `words/${ids[0]}`, { status: 'approved' })).status, 400);
+  const r = await ok(admin('POST', 'words/approve', { ids }));
+  assert.equal(r.results.filter(x => x.ok).length, 7);
+  assert.match(r.results.find(x => !x.ok).error, /תרגום/);
+  await ok(admin('PUT', `words/${ids[0]}`, { he: FIX[0].he, status: 'approved' }));
+  assert.equal((await ok(admin('GET', 'words?status=approved'))).length, 8);
 });
 
-test('תצוגה מקדימה למנהל לא משפיעה על נתוני הילד', async () => {
-  const v = await ok(admin('POST', `lessons/${lessonId}/preview`));
+test('השיעור היומי נבנה מעצמו ממילים מאושרות — שיעור אחד ליום, גם בבקשות במקביל', async () => {
+  const homes = await Promise.all(Array.from({ length: 6 }, () => ok(kid('GET', 'child/home'))));
+  assert.ok(homes.every(h => h.mode === 'start'));
+  assert.equal(dailyLessons('2026-10-12').length, 1, 'שיעור אחד בלבד ליום');
+  const lesson = dailyLessons('2026-10-12')[0];
+  assert.equal(lesson.items.length, 4);
+  const approved = new Set(store.data.words.filter(w => w.status === 'approved').map(w => w.id));
+  assert.ok(lesson.items.every(i => approved.has(i.wordId)), 'רק מילים מאושרות');
+  const dash = await ok(admin('GET', 'dashboard'));
+  const me = dash.children.find(c => c.id === child.id);
+  assert.equal(me.todayStatus, 'approved');
+  assert.deepEqual([me.pool.available, me.pool.days], [4, 1], 'נשארו 4 מאושרות = יום אחד');
+  assert.equal(dash.draftsCount, 6);
+});
+
+test('תצוגה מקדימה של השיעור הבא לא משפיעה על נתוני הילד', async () => {
+  const v = await ok(admin('POST', `children/${child.id}/preview`));
+  assert.equal(v.plan.filter(s => s.t === 'card').length, 4);
   const s = v.plan.findIndex(x => x.t === 'mc');
   const r = await ok(admin('POST', `preview/${v.token}/answer`, { step: s, answer: v.plan[s].answer }));
   assert.equal(r.correct, true);
   assert.equal(store.data.answers.length, 0);
-  assert.equal((await ok(admin('GET', `lessons/${lessonId}`))).status, 'approved');
+  assert.equal(dailyLessons('2026-10-12')[0].status, 'approved');
 });
 
 test('שיעור יומי: כרטיסים, תרגול, טעות מוסיפה סבב תיקון, המשך מנקודת עצירה, סיכום', async () => {
-  assert.equal((await ok(kid('GET', 'child/home'))).mode, 'start');
-  let v = await ok(kid('POST', 'child/lesson/start', { lessonId }));
+  const home = await ok(kid('GET', 'child/home'));
+  let v = await ok(kid('POST', 'child/lesson/start', { lessonId: home.lessonId }));
   assert.equal(v.plan[0].t, 'stage');
   assert.equal(v.plan.filter(s => s.t === 'card').length, 4);
   const types = new Set(v.plan.map(s => s.t));
   for (const t of ['mc', 'match', 'cloze', 'type']) assert.ok(types.has(t), 'חסר תרגיל ' + t);
-  // בתרגול אין תמונה/תרגום גלויים מעבר לשאלה: בשאלת en2he התשובה היא אחת מארבע אפשרויות
   const mc = v.plan.find(s => s.t === 'mc');
   assert.equal(mc.options.length, 4);
   assert.ok(mc.options.includes(mc.answer));
 
-  // עוצרים באמצע ופותחים מחדש
-  await ok(kid('POST', `child/lesson/${lessonId}/advance`, { step: 3 }));
+  await ok(kid('POST', `child/lesson/${v.id}/advance`, { step: 3 }));
   assert.equal((await ok(kid('GET', 'child/home'))).mode, 'resume');
-  v = await ok(kid('POST', 'child/lesson/start', { lessonId }));
+  v = await ok(kid('POST', 'child/lesson/start', { lessonId: v.id }));
   assert.equal(v.step, 3);
 
   const weakWord = v.words[v.plan.find(s => s.t === 'card').w].en;
@@ -159,88 +155,91 @@ test('שיעור יומי: כרטיסים, תרגול, טעות מוסיפה ס�
   assert.equal(sum.newWords, 4);
   assert.ok(sum.total > 0 && sum.correct < sum.total);
   assert.deepEqual(sum.weak.map(w => w.en), [weakWord]);
-  assert.ok(sum.stars > 0);
-  const after = await ok(kid('GET', 'child/home'));
-  assert.equal(after.mode, 'done');
-
-  const lesson = store.lesson(lessonId);
-  assert.ok(lesson.session.plan.some(s => s.retry), 'טעות יוצרת תרגול חוזר');
+  assert.equal((await ok(kid('GET', 'child/home'))).mode, 'done');
+  assert.ok(store.lesson(v.id).session.plan.some(s => s.retry), 'טעות יוצרת תרגול חוזר');
   const prog = await ok(admin('GET', `children/${child.id}/words`));
-  assert.equal(prog.length, 4);
   assert.equal(prog.find(p => p.en === weakWord).status, 'needs_reinforcement');
   assert.ok(prog.filter(p => p.en !== weakWord).every(p => p.status === 'learning'), 'הצלחה ראשונה לא הופכת מילה ל"נלמדה היטב"');
 });
 
-test('שיעור שהושלם נעול לעריכה', async () => {
-  const d = await ok(admin('GET', `lessons/${lessonId}`));
-  assert.equal(d.editable, false);
-  assert.equal((await admin('PUT', `lessons/${lessonId}/items/${d.items[0].id}`, { he: 'x' })).status, 409);
+test('המנהל רואה את השיעור שהושלם — לצפייה בלבד', async () => {
+  const l = dailyLessons('2026-10-12')[0];
+  const d = await ok(admin('GET', `lessons/${l.id}`));
+  assert.equal(d.status, 'completed');
+  assert.equal(d.items.length, 4);
+  assert.ok(d.summary.total > 0);
+  assert.equal((await admin('PUT', `lessons/${l.id}/items/${l.items[0].id}`, { he: 'x' })).status, 404, 'אין עריכת שיעורים');
+  const list = await ok(admin('GET', 'lessons'));
+  assert.ok(list.some(x => x.id === l.id && x.pct != null));
 });
 
 test('למחרת: מילים חדשות לא חוזרות, מילה שדורשת חיזוק נבחרת לחזרה', async () => {
   setClock('2026-10-13T09:00:00Z');
   const learned = new Set(Object.keys(store.childProgress(child.id)).map(Number));
-  const r = await ok(admin('POST', 'lessons/prepare', { from: '2026-10-13', days: 1 }));
-  const d = await ok(admin('GET', `lessons/${r.lessons[0].id}`));
-  assert.ok(d.items.every(i => !learned.has(i.wordId)), 'מילה שנלמדה לא מוצעת שוב כחדשה');
+  const home = await ok(kid('GET', 'child/home'));
+  assert.equal(home.mode, 'start');
+  const lesson = store.lesson(home.lessonId);
+  assert.ok(lesson.items.every(i => !learned.has(i.wordId)), 'מילה שנלמדה לא מוצעת שוב כחדשה');
+  const v = await ok(kid('POST', 'child/lesson/start', { lessonId: home.lessonId }));
   const weak = Object.values(store.childProgress(child.id)).find(p => p.status === 'needs_reinforcement');
-  assert.ok(d.review.some(x => x.w === weak.wordId), 'מילה שדורשת חיזוק מקבלת עדיפות בחזרה');
-  assert.ok(d.review.length <= 3, 'מכסת החזרה נשמרת');
-  await ok(admin('POST', 'lessons/approve', { ids: [d.id] }));
-  const v = await ok(kid('POST', 'child/lesson/start', { lessonId: d.id }));
-  assert.ok(v.plan.some(s => s.t === 'stage' && s.stage === 'review'));
+  const reviewIds = store.lesson(v.id).items.filter(i => i.role === 'review').map(i => i.wordId);
+  assert.ok(reviewIds.includes(weak.wordId), 'מילה שדורשת חיזוק מקבלת עדיפות בחזרה');
+  assert.ok(reviewIds.length <= 3, 'מכסת החזרה נשמרת');
   await playLesson(v, []);
-  const rec = store.childProgress(child.id)[weak.wordId];
-  assert.notEqual(rec.status, 'needs_reinforcement', 'הצלחה אחרי טעות מעדכנת את מצב המילה');
+  assert.notEqual(store.childProgress(child.id)[weak.wordId].status, 'needs_reinforcement');
 });
 
-test('אין שיעור מאושר: מוצעת חזרה על תוכן מאושר בלבד', async () => {
+test('נגמרו המילים המאושרות: אין שיעור ריק, יש חזרה, והמנהל מקבל הודעה', async () => {
   setClock('2026-10-14T09:00:00Z');
-  await ok(admin('POST', 'lessons/prepare', { from: '2026-10-14', days: 1 }));
   const home = await ok(kid('GET', 'child/home'));
   assert.equal(home.mode, 'review');
+  assert.equal(dailyLessons('2026-10-14').length, 0, 'לא נוצר שיעור ריק');
   const v = await ok(kid('POST', 'child/lesson/start', { mode: 'review' }));
   const approved = new Set(store.data.words.filter(w => w.status === 'approved').map(w => w.id));
-  assert.ok(Object.keys(v.words).every(id => approved.has(Number(id))), 'שיעור חזרה מכיל רק מילים מאושרות');
-  assert.ok(v.plan.every(s => s.t !== 'card'), 'בחזרה אין מילים חדשות');
-});
-
-test('אין מספיק מילים חדשות: אין כפילויות, והמנהל מקבל הודעה', async () => {
-  const r = await ok(admin('POST', 'lessons/prepare', { from: '2026-10-15', days: 1 }));
-  const d = await ok(admin('GET', `lessons/${r.lessons[0].id}`));
-  const ids = d.items.map(i => i.wordId);
-  assert.equal(new Set(ids).size, ids.length);
-  const r2 = await ok(admin('POST', 'lessons/prepare', { from: '2026-10-18', days: 1 }));
-  const d2 = await ok(admin('GET', `lessons/${r2.lessons[0].id}`));
-  assert.ok(d2.items.length < 4);
-  assert.ok(d2.warnings.some(w => w.includes('אין מספיק מילים')));
+  assert.ok(Object.keys(v.words).every(id => approved.has(Number(id))), 'חזרה רק על מילים מאושרות');
+  assert.ok(v.plan.every(s => s.t !== 'card'));
   const dash = await ok(admin('GET', 'dashboard'));
-  assert.ok(dash.notices.some(n => n.text.includes('אין מספיק מילים')));
-  if (!d2.items.length) {
-    // שיעור ריק לא ניתן לאישור; אחרי הוספת מילה למאגר — "הכנה מחדש" ממלאת אותו
-    assert.equal((await admin('POST', `lessons/${d2.id}/approve`)).status, 400);
-    await ok(admin('POST', 'words', { en: 'bird', he: 'ציפור', level: 'beginner', exampleEn: 'A bird can fly.', exampleHe: 'ציפור יכולה לעוף.', clozeEn: 'The ___ sings in the tree.', clozeHe: 'הציפור שרה על העץ.', distractorsHe: ['דג', 'חתול', 'נחש'], distractorsEn: ['table', 'shoe', 'road'] }));
-    const again = await ok(admin('POST', `lessons/${d2.id}/regenerate`));
-    assert.equal(again.items.length, 1);
-  }
+  assert.ok(dash.notices.some(n => n.text.includes('אין מילים מאושרות')));
+  assert.match(scheduler.adminDigest(store), /לנועה אין מילים מאושרות חדשות.*6 מילים ממתינות לאישור/);
 });
 
-test('התראות: נשלחות בשעה שנקבעה, פעם אחת, תזכורת עד להשלמה', async () => {
+test('הודעה יומית למנהל נשלחת בשעה שנקבעה, רק כשיש מה לעשות', async () => {
+  const sent = [];
+  ha.notify = async (service, msg) => { sent.push({ service, ...msg }); };
+  await ok(admin('PUT', 'settings', { adminNotifyService: 'mobile_app_parent', prepTime: '19:00' }));
+  setClock('2026-10-14T15:00:00Z'); // 18:00
+  await scheduler.tick(store);
+  assert.equal(sent.filter(s => s.service === 'mobile_app_parent').length, 0);
+  setClock('2026-10-14T16:05:00Z'); // 19:05
+  await scheduler.tick(store);
+  await scheduler.tick(store);
+  const adminMsgs = sent.filter(s => s.service === 'mobile_app_parent');
+  assert.equal(adminMsgs.length, 1);
+  assert.match(adminMsgs[0].message, /ממתינות לאישור/);
+  // אחרי שהכול אושר — למחרת אין הודעה (עדיין יש מילים לכמה ימים?) — 6 מילים / 4 ביום = יום אחד, לכן כן תישלח אזהרה
+  await ok(admin('POST', 'words/approve', { ids: store.data.words.filter(w => w.status === 'draft').map(w => w.id) }));
+  assert.match(scheduler.adminDigest(store), /נשארו מילים מאושרות ל-1 ימים/);
+  assert.doesNotMatch(scheduler.adminDigest(store), /ממתינות/);
+});
+
+test('התראות לילד: בשעה שנקבעה, פעם אחת, תזכורת עד להשלמה; שיעור שהוחמץ מחזיר את המילים לתור', async () => {
   const sent = [];
   ha.notify = async (service, msg) => { sent.push({ service, ...msg }); };
   scheduler.setPanelUrl('/hassio/ingress/abc_wordsteps');
   await ok(admin('PUT', `children/${child.id}`, { notifyService: 'mobile_app_noa_iphone', notifyTime: '16:00', reminderEnabled: true, reminderAfterMin: 60 }));
   setClock('2026-10-15T12:00:00Z'); // 15:00 — לפני השעה
-  await ok(admin('POST', 'lessons/approve', { ids: store.data.lessons.filter(l => l.date === '2026-10-15').map(l => l.id) }));
   await scheduler.tick(store);
   assert.equal(sent.length, 0);
+  assert.equal(dailyLessons('2026-10-15').length, 0, 'השיעור נבנה רק כשמגיע זמנו');
   setClock('2026-10-15T13:01:00Z'); // 16:01
   await scheduler.tick(store);
   await scheduler.tick(store);
   assert.equal(sent.length, 1, 'התראה אחת בלבד');
   assert.equal(sent[0].url, '/hassio/ingress/abc_wordsteps');
   assert.match(sent[0].message, /נועה/);
+  assert.match(sent[0].message, /4 מילים חדשות/);
   assert.match(sent[0].message, /מוכנה/);
+  assert.equal(dailyLessons('2026-10-15').length, 1);
   setClock('2026-10-15T14:05:00Z'); // שעה אחרי — תזכורת
   await scheduler.tick(store);
   assert.equal(sent.length, 2);
@@ -250,32 +249,32 @@ test('התראות: נשלחות בשעה שנקבעה, פעם אחת, תזכו�
   assert.deepEqual(log.slice(0, 2).map(n => n.kind), ['reminder', 'daily']);
 });
 
-test('התראה לא נשלחת כשהשיעור הושלם, ביום שאינו יום לימוד, או לילד מושהה', async () => {
+test('ביום שאינו יום לימוד או לילד מושהה אין התראה; שיעור שהושלם לפני השעה — אין התראה', async () => {
   const sent = [];
   ha.notify = async (service, msg) => { sent.push(msg); };
-  // 16/10 הוא יום שישי — לא יום לימוד
-  setClock('2026-10-16T13:30:00Z');
+  const missed = dailyLessons('2026-10-15')[0];
+  setClock('2026-10-16T13:30:00Z'); // שישי
   await scheduler.tick(store);
   assert.equal(sent.length, 0);
-  // יום ראשון 18/10: מושהה
+  assert.equal((await ok(admin('GET', `lessons/${missed.id}`))).status, 'missed');
   await ok(admin('PUT', `children/${child.id}`, { active: false }));
-  await ok(admin('POST', 'lessons/approve', { ids: store.data.lessons.filter(l => l.date === '2026-10-18').map(l => l.id) }));
-  setClock('2026-10-18T13:30:00Z');
+  setClock('2026-10-18T13:30:00Z'); // ראשון, מושהה
   await scheduler.tick(store);
   assert.equal(sent.length, 0);
   assert.equal((await ok(kid('GET', 'me'))).role, 'paused');
   await ok(admin('PUT', `children/${child.id}`, { active: true }));
-  // משלים לפני השעה — לא תישלח התראה
   setClock('2026-10-18T10:00:00Z');
-  const lesson = store.data.lessons.find(l => l.date === '2026-10-18' && l.kind === 'daily');
-  const v = await ok(kid('POST', 'child/lesson/start', { lessonId: lesson.id }));
-  await playLesson(v, []);
+  const home = await ok(kid('GET', 'child/home'));
+  const today = store.lesson(home.lessonId);
+  const missedIds = missed.items.map(i => i.wordId);
+  assert.ok(today.items.some(i => missedIds.includes(i.wordId)), 'מילים משיעור שהוחמץ חוזרות לתור');
+  await playLesson(await ok(kid('POST', 'child/lesson/start', { lessonId: home.lessonId })), []);
   setClock('2026-10-18T13:30:00Z');
   await scheduler.tick(store);
   assert.equal(sent.length, 0);
 });
 
-test('כשל בשליחת התראה נרשם ביומן והשיעור נשאר זמין', async () => {
+test('כשל בשליחת התראה נרשם ביומן', async () => {
   ha.notify = async () => { throw new Error('mobile app unreachable'); };
   const r = await ok(admin('POST', `children/${child.id}/test-notify`, {}));
   assert.equal(r.ok, false);

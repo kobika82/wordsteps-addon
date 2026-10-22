@@ -79,16 +79,13 @@ function dashboard(store) {
       status: statusCounts(progress),
       weekAccuracy: accuracy(ans).pct,
       lastNotification: lastNotif ? { at: lastNotif.at, ok: lastNotif.ok, kind: lastNotif.kind, error: lastNotif.error } : null,
+      pool: L.poolInfo(store, c),
       hard
     };
   });
-  const pending = store.data.lessons.filter(l => l.kind === 'daily' && l.status === 'pending' && l.date >= date)
-    .sort((a, b) => (a.date < b.date ? -1 : 1))
-    .map(l => ({ id: l.id, date: l.date, childId: l.childId, childName: store.child(l.childId)?.name || '', items: l.items.length, approvedItems: l.items.filter(i => i.approved).length }));
-  const tomorrow = addDays(date, 1);
   return {
-    date, children, pending,
-    tomorrowPending: pending.filter(p => p.date === tomorrow).length,
+    date, children,
+    draftsCount: store.data.words.filter(w => w.status === 'draft').length,
     notices: store.data.adminNotices.filter(n => !n.dismissed).slice(0, 20),
     bank: { total: store.data.words.length, approved: store.data.words.filter(w => w.status === 'approved').length }
   };

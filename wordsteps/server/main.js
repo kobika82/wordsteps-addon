@@ -142,7 +142,7 @@ function lessonSummaryRow(l) {
   return {
     id: l.id, date: l.date, kind: l.kind, childId: l.childId, childName: store.child(l.childId)?.name || '',
     status: L.displayStatus(l), items: l.items.filter(i => i.role === 'new').length,
-    approvedItems: l.items.filter(i => i.role === 'new' && i.approved).length,
+    reviewItems: l.items.filter(i => i.role === 'review').length,
     pct: l.summary?.pct ?? null, warnings: l.warnings || []
   };
 }
@@ -150,15 +150,11 @@ function lessonSummaryRow(l) {
 function lessonDetail(l) {
   const child = store.child(l.childId);
   const prog = store.childProgress(l.childId);
-  const reviewIds = l.session ? l.items.filter(i => i.role === 'review').map(i => i.wordId) : (l.reviewPreview || []);
+  const reviewIds = l.items.filter(i => i.role === 'review').map(i => i.wordId);
   return {
     ...lessonSummaryRow(l), approvedAt: l.approvedAt, completedAt: l.completedAt, summary: l.summary,
-    editable: !l.session && l.status !== 'completed',
     exerciseTypes: child?.exerciseTypes || [],
-    items: l.items.filter(i => i.role === 'new').map(i => ({
-      ...i, missing: C.missingFields(i.content, child?.exerciseTypes),
-      bankStatus: store.word(i.wordId)?.status || 'deleted'
-    })),
+    items: l.items.filter(i => i.role === 'new'),
     review: reviewIds.map(id => {
       const w = store.word(id);
       return { w: id, en: w?.en || '?', he: w?.he || '', status: prog[id]?.status || 'new', approved: w?.status === 'approved' };
@@ -371,6 +367,19 @@ route('POST', '/api/words/generate', 'admin', async ({ body }) => {
   const added = await L.generateWords(store, { count: int(body.count, 1, 30, 10), level, topic: C.TOPICS[body.topic] ? body.topic : '', age: body.age });
   return { added: added.length, words: added };
 });
+// אישור מרוכז של מילים במאגר
+route('POST', '/api/words/approve', 'admin', async ({ body }) => {
+  const results = [];
+  for (const id of body.ids || []) {
+    const w = store.word(id);
+    try {
+      if (!w) throw new HttpError(404, 'המילה לא נמצאה');
+      L.approveWord(store, w);
+      results.push({ id: Number(id), ok: true });
+    } catch (e) { results.push({ id: Number(id), en: w && w.en, ok: false, error: e.message }); }
+  }
+  return { results };
+});
 route('PUT', '/api/words/:id', 'admin', async ({ params, body }) => {
   const w = store.word(params.id);
   if (!w) throw new HttpError(404, 'המילה לא נמצאה');
@@ -382,13 +391,8 @@ route('PUT', '/api/words/:id', 'admin', async ({ params, body }) => {
   if ('level' in body && C.LEVELS.includes(body.level)) w.level = body.level;
   if ('topic' in body) w.topic = C.TOPICS[body.topic] ? body.topic : '';
   if ('difficulty' in body) w.difficulty = int(body.difficulty, 1, 10, w.difficulty);
-  if ('status' in body && ['draft', 'approved'].includes(body.status)) {
-    if (body.status === 'approved') {
-      const miss = C.missingFields(w);
-      if (miss.length) throw new HttpError(400, 'לא ניתן לאשר — חסר: ' + miss.join(', '));
-    }
-    w.status = body.status;
-  }
+  if (body.status === 'approved') L.approveWord(store, w);
+  else if (body.status === 'draft') w.status = 'draft';
   w.updatedAt = U.now().toISOString();
   store.save();
   return wordRow(w);
@@ -424,106 +428,20 @@ route('POST', '/api/images/generate', 'admin', async ({ body }) => {
   return { dataUrl: `data:${g.mime};base64,${g.data}` };
 });
 
-// ---- מנהל: שיעורים ----
+// ---- מנהל: שיעורים (צפייה בלבד — השיעורים נבנים אוטומטית ממילים מאושרות) ----
 route('GET', '/api/lessons', 'admin', async ({ query }) => {
   const status = query.get('status'), cid = query.get('childId');
-  const from = query.get('from') || U.addDays(U.today(), -14);
+  const from = query.get('from') || U.addDays(U.today(), -30);
   return store.data.lessons
-    .filter(l => l.kind === 'daily' && l.date >= from && (!cid || String(l.childId) === cid))
+    .filter(l => l.date >= from && (!cid || String(l.childId) === cid))
     .map(lessonSummaryRow)
     .filter(l => !status || l.status === status)
-    .sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : a.childName.localeCompare(b.childName)));
-});
-route('POST', '/api/lessons/prepare', 'admin', async ({ body }) => {
-  const from = body.from || U.addDays(U.today(), 1);
-  const created = await L.prepareRange(store, { fromDate: from, days: int(body.days, 1, 14, 1), childId: body.childId });
-  return { created: created.length, lessons: created.map(lessonSummaryRow) };
-});
-route('POST', '/api/lessons/approve', 'admin', async ({ body }) => {
-  const results = [];
-  for (const id of body.ids || []) {
-    try {
-      const l = lessonOr404(id);
-      L.approveLesson(store, l, childOr404(l.childId));
-      results.push({ id, ok: true });
-    } catch (e) { results.push({ id, ok: false, error: e.message }); }
-  }
-  return { results };
+    .sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : b.id - a.id));
 });
 route('GET', '/api/lessons/:id', 'admin', async ({ params }) => lessonDetail(lessonOr404(params.id)));
-route('DELETE', '/api/lessons/:id', 'admin', async ({ params }) => {
-  const l = lessonOr404(params.id);
-  L.lessonEditable(l);
-  store.data.lessons = store.data.lessons.filter(x => x !== l);
-  store.save();
-  return { ok: true };
-});
-route('POST', '/api/lessons/:id/regenerate', 'admin', async ({ params }) => {
-  const l = lessonOr404(params.id);
-  const r = await L.prepareLesson(store, childOr404(l.childId), l.date, { force: true });
-  return lessonDetail(r.lesson);
-});
-route('POST', '/api/lessons/:id/approve', 'admin', async ({ params }) => {
-  const l = lessonOr404(params.id);
-  L.approveLesson(store, l, childOr404(l.childId));
-  return lessonDetail(l);
-});
-route('POST', '/api/lessons/:id/preview', 'admin', async ({ params }) => {
-  const l = lessonOr404(params.id);
-  return L.startPreview(store, l, childOr404(l.childId));
-});
+// תצוגה מקדימה של השיעור הבא של ילד — כמו שהוא יראה אותו, בלי לשמור כלום
+route('POST', '/api/children/:id/preview', 'admin', async ({ params }) => L.startPreview(store, childOr404(params.id)));
 route('POST', '/api/preview/:token/answer', 'admin', async ({ params, body }) => L.previewAnswer(store, params.token, body.step, body));
-route('POST', '/api/lessons/:id/items', 'admin', async ({ params, body }) => {
-  const l = lessonOr404(params.id);
-  L.lessonEditable(l);
-  const child = childOr404(l.childId);
-  let wordId = body.wordId;
-  if (!wordId && body.en) {
-    const en = String(body.en).trim();
-    let w = store.data.words.find(x => x.en.toLowerCase() === en.toLowerCase());
-    if (!w) {
-      const data = gemini.isConfigured() ? { ...(await gemini.completeWord({ en, level: child.level, age: child.age })), en, level: child.level } : { en, level: child.level };
-      w = L.addWordToBank(store, data, { status: 'draft', source: gemini.isConfigured() ? 'gemini' : 'manual' });
-      if (gemini.isConfigured()) await L.proposeImage(store, w);
-    }
-    wordId = w.id;
-  }
-  if (!wordId) throw new HttpError(400, 'יש לבחור מילה');
-  L.addItem(store, l, wordId);
-  return lessonDetail(l);
-});
-route('PUT', '/api/lessons/:id/items/:item', 'admin', async ({ params, body }) => {
-  const l = lessonOr404(params.id);
-  L.updateItem(store, l, params.item, body);
-  return lessonDetail(l);
-});
-route('POST', '/api/lessons/:id/items/:item/approve', 'admin', async ({ params }) => {
-  const l = lessonOr404(params.id);
-  L.approveItem(store, l, params.item, childOr404(l.childId));
-  return lessonDetail(l);
-});
-route('DELETE', '/api/lessons/:id/items/:item', 'admin', async ({ params }) => {
-  const l = lessonOr404(params.id);
-  L.removeItem(store, l, params.item);
-  return lessonDetail(l);
-});
-route('POST', '/api/lessons/:id/items/:item/replace', 'admin', async ({ params, body }) => {
-  const l = lessonOr404(params.id);
-  const child = childOr404(l.childId);
-  const wordId = body.wordId || (await L.suggestReplacement(store, l, child)).id;
-  L.replaceItem(store, l, params.item, wordId);
-  return lessonDetail(l);
-});
-route('POST', '/api/lessons/:id/items/:item/autofill', 'admin', async ({ params }) => {
-  const l = lessonOr404(params.id);
-  L.lessonEditable(l);
-  const child = childOr404(l.childId);
-  const it = l.items.find(i => i.id === Number(params.item));
-  if (!it) throw new HttpError(404, 'הפריט לא נמצא');
-  const g = await gemini.completeWord({ en: it.content.en, level: child.level, age: child.age });
-  L.updateItem(store, l, params.item, { ...g, en: it.content.en, image: it.content.image, imageCredit: it.content.imageCredit });
-  return lessonDetail(l);
-});
 
 // ---- מנהל: דוחות והגדרות ----
 route('GET', '/api/reports/:id', 'admin', async ({ params, query }) => {
@@ -555,7 +473,7 @@ route('PUT', '/api/settings', 'admin', async ({ body }) => {
 route('POST', '/api/settings/test-gemini', 'admin', async () => ({ reply: await gemini.test() }));
 route('POST', '/api/settings/test-admin-notify', 'admin', async ({ body }) => scheduler.send(store, {
   kind: 'test', service: body.service || store.data.settings.adminNotifyService,
-  title: 'WordSteps — בדיקה', message: 'התראת בדיקה למנהל. כאן תגיע ההודעה כששיעורי המחר מוכנים לאישור.'
+  title: 'WordSteps — בדיקה', message: 'התראת בדיקה למנהל. כאן תגיע ההודעה כשיש מילים לאישור או כשלילד נגמרות המילים המאושרות.'
 }));
 
 // ---------- HTTP ----------

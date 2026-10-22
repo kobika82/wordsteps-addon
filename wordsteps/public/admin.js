@@ -7,7 +7,7 @@
   const DAYS = ['א׳', 'ב׳', 'ג׳', 'ד׳', 'ה׳', 'ו׳', 'ש׳'];
   const EX_HE = { mc: 'בחירת תרגום', match: 'התאמת מילים', cloze: 'השלמת משפט', type: 'כתיבת מילה' };
   const LESSON_ST = {
-    pending: ['ממתין לאישור', 'warn'], approved: ['מאושר', 'ok'], in_progress: ['בתהליך', 'info'],
+    pending: ['ממתין', 'warn'], approved: ['מוכן', 'ok'], in_progress: ['בתהליך', 'info'],
     completed: ['הושלם', 'brand'], missed: ['הוחמץ', ''], none: ['אין שיעור', 'bad'], off: ['לא יום לימוד', '']
   };
   const WORD_ST = { draft: ['טיוטה', 'warn'], approved: ['מאושרת', 'ok'] };
@@ -15,7 +15,7 @@
   const badge = (map, k) => { const [t, c] = map[k] || [k, '']; return h('span.badge' + (c ? '.' + c : ''), t); };
   const progBadge = st => h('span.badge' + (PROG_CLS[st] ? '.' + PROG_CLS[st] : ''), M.statusHe[st] || st);
 
-  const NAV = [['#/', 'לוח בקרה'], ['#/children', 'ילדים'], ['#/lessons', 'שיעורים'], ['#/words', 'מאגר מילים'], ['#/reports', 'דוחות'], ['#/settings', 'הגדרות']];
+  const NAV = [['#/', 'לוח בקרה'], ['#/approve', 'אישור מילים'], ['#/children', 'ילדים'], ['#/lessons', 'שיעורים'], ['#/words', 'מאגר מילים'], ['#/reports', 'דוחות'], ['#/settings', 'הגדרות']];
   function page(title, ...content) {
     document.body.classList.remove('kid');
     document.body.classList.add('admin');
@@ -33,6 +33,7 @@
     WS.route('/child/:id', childPage);
     WS.route('/lessons', lessons);
     WS.route('/lesson/:id', lessonPage);
+    WS.route('/approve', approveWords);
     WS.route('/words', words);
     WS.route('/reports', () => reports());
     WS.route('/reports/:id', reports);
@@ -40,30 +41,31 @@
   };
 
   // ---------------- לוח בקרה ----------------
+  function poolText(p) {
+    if (!p) return '—';
+    if (!p.available) return h('span.badge.bad', 'אין מילים מאושרות');
+    return h('span.badge' + (p.days < 3 ? '.warn' : '.ok'), `${p.available} מילים · ≈${p.days} ימים`);
+  }
   async function dashboard() {
     const d = await WS.get('dashboard');
     const alerts = [];
-    if (!d.status.gemini.configured) alerts.push(h('div.alert.warn', '⚠️', h('div', 'Gemini לא מוגדר — לא תתבצע הצעת מילים אוטומטית. אפשר להוסיף מילים ידנית, או להזין מפתח API בהגדרות התוסף ב-Home Assistant.')));
     if (!d.status.ha.connected) alerts.push(h('div.alert.warn', '⚠️', h('div', 'אין חיבור ל-Home Assistant — התראות לא יישלחו.')));
     for (const n of d.notices) {
       alerts.push(h('div.alert.info', 'ℹ️', h('div.grow', n.text, h('div.small.muted', WS.fmtTime(n.at))),
         h('button.btn.sm.ghost', { onclick: async (e) => { await WS.post(`notices/${n.id}/dismiss`); e.target.closest('.alert').remove(); } }, 'הסתרה')));
     }
-    const pendingCard = h('div.card',
-      h('div.row', h('h2.grow', `ממתינים לאישור (${d.pending.length})`),
-        h('button.btn', { onclick: (e) => WS.busy(e.currentTarget, async () => { const r = await WS.post('lessons/prepare', { days: 1 }); WS.toast(r.created ? `הוכנו ${r.created} שיעורים` : 'שיעורי המחר כבר קיימים'); dashboard(); }) }, '🪄 הכנת שיעורי מחר'),
-        d.pending.length ? h('button.btn.primary', { onclick: () => WS.go('#/lessons?pending') }, `✔ לאישור שיעורי מחר (${d.tomorrowPending})`) : null),
-      d.pending.length ? h('div.table-wrap', h('table.t',
-        h('tr', h('th', 'תאריך'), h('th', 'ילד'), h('th', 'מילים מאושרות')),
-        d.pending.map(p => h('tr.click', { onclick: () => WS.go('#/lesson/' + p.id) },
-          h('td', WS.fmtDate(p.date)), h('td', p.childName), h('td', `${p.approvedItems}/${p.items}`)))))
-        : h('p.muted', 'אין שיעורים שממתינים לאישור.'));
+    const approveCard = h('div.card',
+      h('div.row', h('h2.grow', `מילים ממתינות לאישור (${d.draftsCount})`),
+        h('button.btn', { onclick: () => WS.go('#/words') }, '📚 הוספת מילים'),
+        d.draftsCount ? h('button.btn.primary', { onclick: () => WS.go('#/approve') }, '✔ לאישור מילים') : null),
+      h('p.small.muted', 'השיעורים נבנים אוטומטית בכל יום, רק ממילים שאישרתם. אין צורך לאשר שיעורים.'));
     const kids = h('div.card', h('h2', 'הילדים היום'),
       d.children.length ? h('div.table-wrap', h('table.t',
-        h('tr', h('th', 'שם'), h('th', 'השיעור היום'), h('th', 'מילים שנלמדו'), h('th', 'נלמדו היטב'), h('th', 'דורשות חיזוק'), h('th', 'הצלחה (7 ימים)'), h('th', 'התראה אחרונה')),
-        d.children.map(c => h('tr.click', { onclick: () => WS.go('#/child/' + c.id) },
+        h('tr', h('th', 'שם'), h('th', 'השיעור היום'), h('th', 'מילים מאושרות שנותרו'), h('th', 'מילים שנלמדו'), h('th', 'נלמדו היטב'), h('th', 'דורשות חיזוק'), h('th', 'הצלחה (7 ימים)'), h('th', 'התראה אחרונה')),
+        d.children.map(c => h('tr.click', { onclick: () => WS.go(c.todayLessonId ? '#/lesson/' + c.todayLessonId : '#/child/' + c.id) },
           h('td', h('b', c.name), c.active ? null : h('span.badge', ' מושהה')),
           h('td', badge(LESSON_ST, c.todayStatus)),
+          h('td', poolText(c.pool)),
           h('td', String(c.learned)), h('td', String(c.status.mastered || 0)), h('td', String(c.status.needs_reinforcement || 0)),
           h('td', c.weekAccuracy == null ? '—' : c.weekAccuracy + '%'),
           h('td', c.lastNotification ? h('span.badge' + (c.lastNotification.ok ? '.ok' : '.bad'), (c.lastNotification.ok ? 'נשלחה ' : 'נכשלה ') + WS.fmtTime(c.lastNotification.at)) : '—')))))
@@ -72,7 +74,7 @@
     const hardCard = hard.length ? h('div.card', h('h2', '⚠️ מילים קשות'),
       hard.map(c => h('div', { style: { marginBottom: '8px' } }, h('b', c.name + ': '),
         h('span.chips', c.hard.map(w => h('span.chip', en(w.en), ` — ${w.he} (${w.wrong} טעויות)`)))))) : null;
-    page('לוח בקרה', ...alerts, pendingCard, kids, hardCard,
+    page('לוח בקרה', ...alerts, approveCard, kids, hardCard,
       h('p.small.muted', `מאגר המילים: ${d.bank.total} מילים, ${d.bank.approved} מאושרות. אזור זמן: ${d.status.timeZone}.`));
   }
 
@@ -132,7 +134,7 @@
         h('h3', { style: { marginTop: '12px' } }, 'ימי לימוד'), days,
         h('h3', { style: { marginTop: '12px' } }, 'נושאים (ריק = כל הנושאים)'), topics,
         h('h3', { style: { marginTop: '12px' } }, 'סוגי תרגילים מותרים'), exTypes,
-        h('p.small.muted', 'שינויים משפיעים על שיעורים עתידיים בלבד. שיעור שכבר הוכן וממתין לאישור אפשר להכין מחדש ממסך השיעור.')),
+        h('p.small.muted', 'שינויים משפיעים מהשיעור הבא. השיעור נבנה מהמילים המאושרות ברמה ובנושאים של הילד.')),
       h('div.card', h('h2', 'כניסה והתראות'),
         h('div.grid2',
           field('משתמש Home Assistant של הילד', I.haUserId, usersR.error ? 'לא ניתן לקרוא את רשימת המשתמשים מ-HA: ' + usersR.error + '. מוצגים משתמשים שכבר נכנסו לאפליקציה.' : 'הילד נכנס דרך אפליקציית Home Assistant שלו — בלי סיסמה נוספת.'),
@@ -170,7 +172,8 @@
     const extra = isNew ? [] : [h('div.card#kidwords', h('div.loading', 'טוען מילים…'))];
     page(isNew ? 'ילד חדש' : c.name,
       isNew ? null : h('div.row', { style: { marginBottom: '12px' } },
-        h('a.btn', { href: '#/reports/' + c.id }, '📊 דוח התקדמות'), h('a.btn', { href: '#/lessons?child=' + c.id }, '📅 שיעורים')),
+        h('a.btn', { href: '#/reports/' + c.id }, '📊 דוח התקדמות'), h('a.btn', { href: '#/lessons?child=' + c.id }, '📅 שיעורים'),
+        h('button.btn', { onclick: (e) => previewNext(c, e.currentTarget) }, '👁 תצוגה מקדימה של השיעור הבא')),
       form, h('div.row', save, h('div.grow'), del), ...extra);
 
     async function loadNotifs() {
@@ -193,58 +196,6 @@
           ws.map(w => h('tr', h('td', en(w.en)), h('td', w.he), h('td', progBadge(w.status)), h('td', `${w.correct}/${w.wrong}`), h('td', WS.fmtDate(w.due))))))
           : h('p.muted', 'עוד לא נלמדו מילים.'));
     }
-  }
-
-  // ---------------- שיעורים ----------------
-  async function lessons() {
-    const q = new URLSearchParams(location.hash.split('?')[1] || '');
-    const kids = await WS.get('children');
-    const fStatus = h('select', [['', 'כל הסטטוסים'], ...Object.entries(LESSON_ST).filter(([k]) => !['none', 'off'].includes(k)).map(([k, v]) => [k, v[0]])]
-      .map(([k, t]) => h('option', { value: k, selected: (q.has('pending') && k === 'pending') || q.get('status') === k }, t)));
-    const fChild = h('select', h('option', { value: '' }, 'כל הילדים'), kids.map(c => h('option', { value: c.id, selected: q.get('child') === String(c.id) }, c.name)));
-    const daysSel = h('select', [1, 2, 3, 5, 7].map(n => h('option', { value: n }, n === 1 ? 'יום אחד' : `${n} ימים`)));
-    const list = h('div');
-    const bulk = h('button.btn.ok', { disabled: true }, '✔ אישור השיעורים שסומנו');
-    async function load() {
-      const p = new URLSearchParams();
-      if (fStatus.value) p.set('status', fStatus.value);
-      if (fChild.value) p.set('childId', fChild.value);
-      const rows = await WS.get('lessons?' + p);
-      list.innerHTML = '';
-      const all = h('input', { type: 'checkbox', title: 'סימון הכול', onchange: () => { list.querySelectorAll('input[data-id]').forEach(x => (x.checked = all.checked)); upd(); } });
-      const upd = () => { const n = list.querySelectorAll('input[data-id]:checked').length; bulk.disabled = !n; bulk.textContent = n ? `✔ אישור ${n} שיעורים שסומנו` : '✔ אישור השיעורים שסומנו'; };
-      list.appendChild(rows.length ? h('div.table-wrap', h('table.t',
-        h('tr', h('th', all), h('th', 'תאריך'), h('th', 'ילד'), h('th', 'סטטוס'), h('th', 'מילים חדשות'), h('th', 'הצלחה'), h('th', '')),
-        rows.map(r => h('tr.click', { onclick: (e) => { if (e.target.tagName !== 'INPUT') WS.go('#/lesson/' + r.id); } },
-          h('td', r.status === 'pending' ? h('input', { type: 'checkbox', 'data-id': r.id, onchange: upd }) : null),
-          h('td', WS.fmtDate(r.date)), h('td', r.childName), h('td', badge(LESSON_ST, r.status)),
-          h('td', r.status === 'pending' ? `${r.approvedItems}/${r.items} מאושרות` : String(r.items)),
-          h('td', r.pct == null ? '' : r.pct + '%'),
-          h('td', r.warnings.length ? h('span.badge.warn', { title: r.warnings.join('\n') }, '⚠️ ' + r.warnings.length) : null)))))
-        : h('p.muted', 'אין שיעורים בסינון הזה.'));
-      upd();
-    }
-    bulk.onclick = () => WS.busy(bulk, async () => {
-      const ids = [...list.querySelectorAll('input[data-id]:checked')].map(x => Number(x.dataset.id));
-      const r = await WS.post('lessons/approve', { ids });
-      const bad = r.results.filter(x => !x.ok);
-      WS.toast(`אושרו ${r.results.length - bad.length} שיעורים`);
-      if (bad.length) WS.toast(bad.map(b => b.error).join(' | '), true);
-      load();
-    });
-    fStatus.onchange = load; fChild.onchange = load;
-    page('שיעורים',
-      h('div.card', h('div.row',
-        h('span', 'הכנת שיעורים מראש החל ממחר, ל-'), h('div', { style: { width: '130px' } }, daysSel),
-        h('button.btn.primary', { onclick: (e) => WS.busy(e.currentTarget, async () => {
-          const r = await WS.post('lessons/prepare', { days: Number(daysSel.value), childId: fChild.value || undefined });
-          WS.toast(r.created ? `הוכנו ${r.created} שיעורים חדשים` : 'לא נדרשו שיעורים חדשים (כבר קיימים או שאין ימי לימוד)');
-          load();
-        }) }, '🪄 הכנה')),
-        h('p.small.muted', 'שיעור לא יוצג לילד עד שתאשרו אותו. מילים לחזרה נבחרות מתוכן שכבר אושר.')),
-      h('div.row', { style: { marginBottom: '10px' } }, h('div', { style: { width: '170px' } }, fStatus), h('div', { style: { width: '170px' } }, fChild), h('div.grow'), bulk),
-      list);
-    await load();
   }
 
   // עורך שדות התוכן של מילה (משמש בשיעור ובמאגר)
@@ -335,76 +286,120 @@
         c.image ? h('button.btn.sm', { title: 'הסרת התמונה', onclick: () => setImage({ image: '', imageCredit: '' }) }, '✕') : null));
   }
 
+  // ---------------- שיעורים (צפייה בלבד) ----------------
+  const KIND_HE = { daily: 'שיעור יומי', review: 'חזרה', practice: 'תרגול נוסף' };
+  async function lessons() {
+    const q = new URLSearchParams(location.hash.split('?')[1] || '');
+    const kids = await WS.get('children');
+    const fChild = h('select', h('option', { value: '' }, 'כל הילדים'), kids.map(c => h('option', { value: c.id, selected: q.get('child') === String(c.id) }, c.name)));
+    const list = h('div');
+    async function load() {
+      const rows = await WS.get('lessons?' + new URLSearchParams(fChild.value ? { childId: fChild.value } : {}));
+      list.innerHTML = '';
+      list.appendChild(rows.length ? h('div.table-wrap', h('table.t',
+        h('tr', h('th', 'תאריך'), h('th', 'ילד'), h('th', 'סוג'), h('th', 'סטטוס'), h('th', 'מילים חדשות'), h('th', 'חזרה'), h('th', 'הצלחה')),
+        rows.map(r => h('tr.click', { onclick: () => WS.go('#/lesson/' + r.id) },
+          h('td', WS.fmtDate(r.date)), h('td', r.childName), h('td', KIND_HE[r.kind] || r.kind), h('td', badge(LESSON_ST, r.status)),
+          h('td', String(r.items)), h('td', r.reviewItems ? String(r.reviewItems) : ''), h('td', r.pct == null ? '' : r.pct + '%')))))
+        : h('p.muted', 'עוד אין שיעורים. השיעור הראשון נבנה כשהילד פותח את האפליקציה ביום לימוד.'));
+    }
+    fChild.onchange = load;
+    page('שיעורים',
+      h('p.muted', 'השיעורים נבנים אוטומטית ממילים מאושרות. כאן אפשר לראות מה כל ילד למד ואיך הלך לו.'),
+      h('div.row', { style: { marginBottom: '10px' } }, h('div', { style: { width: '170px' } }, fChild),
+        h('div.grow'),
+        kids.length ? h('span.small.muted', 'תצוגה מקדימה של השיעור הבא:') : null,
+        kids.map(c => h('button.btn.sm', { onclick: (e) => previewNext(c, e.currentTarget) }, '👁 ' + c.name))),
+      list);
+    await load();
+  }
+
+  function previewNext(child, btn) {
+    return WS.busy(btn, async () => {
+      const v = await WS.post(`children/${child.id}/preview`);
+      WS.Child.play(v, { preview: true, onExit: () => WS.render() });
+    });
+  }
+
   async function lessonPage(id) {
     const L = await WS.get('lessons/' + id);
-    renderLesson(L);
-  }
-  function renderLesson(L) {
-    const reload = d => renderLesson(d);
-    const act = (btn, fn) => WS.busy(btn, async () => reload(await fn()));
-    const items = L.items.map(it => {
-      const draft = { ...it.content };
-      let dirty = false;
-      const saveBtn = h('button.btn.primary.sm', { disabled: true, onclick: (e) => act(e.currentTarget, () => WS.put(`lessons/${L.id}/items/${it.id}`, draft)) }, '💾 שמירה');
-      const onChange = (k, v) => { draft[k] = v; dirty = true; saveBtn.disabled = false; };
-      const setImage = (im) => WS.put(`lessons/${L.id}/items/${it.id}`, { ...draft, ...im }).then(reload).catch(WS.fail);
-      return h('div.card.item' + (it.approved ? '.approved' : ''),
-        imageBox(it.content, L.editable ? setImage : () => {}),
-        h('div',
-          h('div.row', { style: { marginBottom: '8px' } },
-            h('h2.grow', en(it.content.en), ' — ', it.content.he, ' ', WS.speakBtn(it.content.en, '.btn.sm')),
-            it.approved ? h('span.badge.ok', '✓ מאושרת') : h('span.badge.warn', 'ממתינה לאישור'),
-            it.bankStatus === 'draft' ? h('span.badge', 'מילה חדשה במאגר') : null),
-          it.missing.length ? h('div.alert.bad', 'חסר: ' + it.missing.join(', ')) : null,
-          L.editable ? contentFields(it.content, onChange) : null,
-          exercisePreview(it.content, L.exerciseTypes),
-          L.editable ? h('div.row', { style: { marginTop: '10px' } },
-            saveBtn,
-            !it.approved ? h('button.btn.ok.sm', { onclick: (e) => act(e.currentTarget, async () => {
-              if (dirty) await WS.put(`lessons/${L.id}/items/${it.id}`, draft);
-              return WS.post(`lessons/${L.id}/items/${it.id}/approve`);
-            }) }, '✓ אישור מילה') : null,
-            h('button.btn.sm', { onclick: (e) => act(e.currentTarget, () => WS.post(`lessons/${L.id}/items/${it.id}/autofill`)) }, '✨ השלמה מחדש ב-Gemini'),
-            h('button.btn.sm', { onclick: (e) => act(e.currentTarget, () => WS.post(`lessons/${L.id}/items/${it.id}/replace`, {})) }, '🔄 החלפת מילה'),
-            h('div.grow'),
-            h('button.btn.danger.sm', { onclick: (e) => { if (confirm(`להסיר את "${it.content.en}" מהשיעור?`)) act(e.currentTarget, () => WS.del(`lessons/${L.id}/items/${it.id}`)); } }, 'הסרה')) : null));
-    });
-
-    const addIn = h('input', { type: 'text', dir: 'ltr', placeholder: 'מילה באנגלית', list: 'bankwords' });
-    const dl = h('datalist#bankwords');
-    WS.get('words').then(ws => ws.forEach(w => dl.appendChild(h('option', { value: w.en }, w.he)))).catch(() => {});
-    const addBox = L.editable ? h('div.card', h('h3', 'הוספת מילה לשיעור'),
-      h('div.row', h('div', { style: { width: '220px' } }, addIn), dl,
-        h('button.btn', { onclick: (e) => { if (addIn.value.trim()) act(e.currentTarget, () => WS.post(`lessons/${L.id}/items`, { en: addIn.value.trim() })); } }, '+ הוספה')),
-      h('p.small.muted', 'מילה מהמאגר תתווסף כפי שהיא; מילה חדשה תושלם ב-Gemini (אם מוגדר) ותחכה לאישור.')) : null;
-
-    const allApproved = L.items.every(i => i.approved);
+    const card = it => h('div.card.item',
+      h('div', h('div.imgbox', it.content.image ? h('img', { src: it.content.image, alt: it.content.en }) : (it.content.emoji || h('span.small.muted', 'ללא תמונה')))),
+      h('div',
+        h('h2', en(it.content.en), ' — ', it.content.he, ' ', WS.speakBtn(it.content.en, '.btn.sm')),
+        it.content.exampleEn ? h('div', en(it.content.exampleEn), h('div.muted', it.content.exampleHe)) : null,
+        exercisePreview(it.content, L.exerciseTypes)));
+    const waiting = L.status === 'in_progress' ? 'הילד באמצע השיעור.'
+      : L.status === 'missed' ? 'השיעור לא בוצע ביום שלו. המילים שלו חוזרות לתור.' : 'השיעור מוכן וממתין לילד.';
     page(null,
-      h('div.row', { style: { marginBottom: '6px' } },
-        h('a.btn.ghost', { href: '#/lessons' }, '→ כל השיעורים'), h('div.grow')),
-      h('div.row', h('h1.grow', `שיעור של ${L.childName} · ${WS.fmtDate(L.date)}`), badge(LESSON_ST, L.status)),
-      ...L.warnings.map(w => h('div.alert.warn', '⚠️', h('div', w))),
-      h('div.card', h('div.row',
-        h('div.grow', `${L.items.length} מילים חדשות · ${L.items.filter(i => i.approved).length} מאושרות · ${L.review.length} מילים לחזרה`),
-        h('button.btn', { onclick: (e) => WS.busy(e.currentTarget, async () => {
-          const v = await WS.post(`lessons/${L.id}/preview`);
-          WS.Child.play(v, { preview: true, onExit: () => WS.render() });
-        }) }, '👁 תצוגה מקדימה'),
-        L.editable ? h('button.btn', { onclick: (e) => { if (confirm('להכין את השיעור מחדש? כל השינויים בשיעור הזה יימחקו.')) act(e.currentTarget, () => WS.post(`lessons/${L.id}/regenerate`)); } }, '🪄 הכנה מחדש') : null,
-        L.editable && L.status !== 'approved' ? h('button.btn.ok', { onclick: (e) => act(e.currentTarget, () => WS.post(`lessons/${L.id}/approve`)) }, allApproved ? '✔ אישור השיעור' : '✔ אישור כל המילים והשיעור') : null),
-        L.status === 'approved' ? h('p.small.muted', 'השיעור מאושר ויוצג לילד בתאריך שלו. שינוי בפריט יחזיר אותו לאישור.') : null,
-        !L.editable ? h('p.small.muted', 'השיעור כבר התחיל או הושלם — התוכן נעול.') : null),
-      L.summary ? h('div.card', h('h2', 'תוצאות'), h('div', `${L.summary.correct}/${L.summary.total} תשובות נכונות (${L.summary.pct}%)`),
-        L.summary.weak.length ? h('div', 'מילים לחיזוק: ', L.summary.weak.map(w => w.en).join(', ')) : null) : null,
-      ...items,
-      addBox,
+      h('div.row', { style: { marginBottom: '6px' } }, h('a.btn.ghost', { href: '#/lessons' }, '→ כל השיעורים')),
+      h('div.row', h('h1.grow', `${KIND_HE[L.kind] || 'שיעור'} של ${L.childName} · ${WS.fmtDate(L.date)}`), badge(LESSON_ST, L.status)),
+      L.summary ? h('div.card', h('h2', 'תוצאות'),
+        h('div', `${L.summary.correct}/${L.summary.total} תשובות נכונות (${L.summary.pct}%) · +${L.summary.stars} ⭐`),
+        L.summary.weak.length ? h('div', 'מילים לחיזוק: ', L.summary.weak.map(w => `${w.en} (${w.he})`).join(', ')) : h('div.muted', 'בלי טעויות 🎉'))
+        : h('div.card', h('p.muted', waiting)),
+      L.items.length ? h('h2', `מילים חדשות (${L.items.length})`) : null,
+      ...L.items.map(card),
       h('div.card', h('h2', `מילים לחזרה (${L.review.length})`),
-        L.review.length ? h('div.chips', L.review.map(r => h('span.chip', en(r.en), ` — ${r.he} `, progBadge(r.status)))) : h('p.muted', 'אין עדיין מילים לחזרה.'),
-        !L.editable ? null : h('p.small.muted', 'כל מילות החזרה כבר אושרו בעבר. הרשימה מתעדכנת ברגע שהילד פותח את השיעור, לפי הביצועים העדכניים שלו.')),
-      L.editable ? h('div.row', h('div.grow'), h('button.btn.danger', { onclick: async () => {
-        if (!confirm('למחוק את השיעור?')) return;
-        try { await WS.del('lessons/' + L.id); WS.go('#/lessons'); } catch (e) { WS.fail(e); }
-      } }, 'מחיקת השיעור')) : null);
+        L.review.length ? h('div.chips', L.review.map(r => h('span.chip', en(r.en), ` — ${r.he} `, progBadge(r.status))))
+          : h('p.muted', L.status === 'approved' ? 'מילות החזרה נבחרות ברגע שהילד מתחיל את השיעור, לפי הביצועים העדכניים שלו.' : 'בלי מילים לחזרה.')));
+  }
+
+  // ---------------- אישור מילים ----------------
+  async function approveWords() {
+    const fl = h('select', h('option', { value: '' }, 'כל הרמות'), Object.entries(M.levels).map(([k, t]) => h('option', { value: k }, t)));
+    const list = h('div');
+    const bulk = h('button.btn.ok', '✔ אישור כל המילים שבעמוד');
+    const PAGE = 15;
+    let cards = [];
+    async function load() {
+      const rows = (await WS.get('words?' + new URLSearchParams({ status: 'draft', level: fl.value }))).sort((a, b) => a.id - b.id);
+      list.innerHTML = '';
+      cards = rows.slice(0, PAGE).map(w => wordCard(w, load));
+      list.append(h('p.small.muted', rows.length ? `${rows.length} מילים ממתינות` + (rows.length > PAGE ? ` — מוצגות ${PAGE} הראשונות` : '') : ''),
+        ...cards.map(c => c.el));
+      if (!rows.length) list.appendChild(h('div.card.center', h('p', '🎉 אין מילים שממתינות לאישור.'), h('a.btn', { href: '#/words' }, '📚 הוספת מילים למאגר')));
+      bulk.disabled = !rows.length;
+    }
+    bulk.onclick = () => WS.busy(bulk, async () => {
+      for (const c of cards) if (c.dirty()) await c.save();
+      const r = await WS.post('words/approve', { ids: cards.map(c => c.id) });
+      const bad = r.results.filter(x => !x.ok);
+      WS.toast(`אושרו ${r.results.length - bad.length} מילים`);
+      if (bad.length) WS.toast(bad.map(b => b.error).join(' | '), true);
+      await load();
+    });
+    fl.onchange = load;
+    page('אישור מילים',
+      h('p.muted', 'ילד רואה רק מילים שאושרו. בדקו איור, תרגום ומשפטים — ערכו אם צריך — ואשרו. השיעורים נבנים מהן אוטומטית.'),
+      h('div.row', { style: { marginBottom: '12px' } }, h('div', { style: { width: '170px' } }, fl), h('div.grow'), bulk),
+      list);
+    await load();
+  }
+
+  // כרטיס עריכה ואישור של מילה אחת
+  function wordCard(w, reload) {
+    const draft = { ...w };
+    let dirty = false;
+    const save = () => WS.put('words/' + w.id, draft).then(r => { dirty = false; return r; });
+    const saveBtn = h('button.btn.primary.sm', { disabled: true, onclick: (e) => WS.busy(e.currentTarget, async () => { await save(); WS.toast('נשמר ✓'); saveBtn.disabled = true; }) }, '💾 שמירה');
+    const onChange = (k, v) => { draft[k] = v; dirty = true; saveBtn.disabled = false; };
+    const setImage = (im) => WS.put('words/' + w.id, { ...draft, ...im }).then(reload).catch(WS.fail);
+    const el = h('div.card.item',
+      imageBox(w, setImage),
+      h('div',
+        h('div.row', { style: { marginBottom: '8px' } },
+          h('h2.grow', en(w.en), ' — ', w.he || '?', ' ', WS.speakBtn(w.en, '.btn.sm')),
+          h('span.badge', M.levels[w.level] || w.level), w.topic ? h('span.badge.info', M.topics[w.topic] || w.topic) : null),
+        contentFields(w, onChange),
+        exercisePreview(w, ['mc', 'cloze', 'type']),
+        h('div.row', { style: { marginTop: '10px' } },
+          saveBtn,
+          h('button.btn.ok.sm', { onclick: (e) => WS.busy(e.currentTarget, async () => { if (dirty) await save(); await WS.put('words/' + w.id, { status: 'approved' }); WS.toast(`"${w.en}" אושרה ✓`); reload(); }) }, '✓ אישור'),
+          h('button.btn.sm', { onclick: (e) => WS.busy(e.currentTarget, async () => { await WS.post(`words/${w.id}/autofill`); reload(); }) }, '✨ השלמה ב-Gemini'),
+          h('div.grow'),
+          h('button.btn.danger.sm', { onclick: async () => { if (!confirm(`למחוק את "${w.en}" מהמאגר?`)) return; try { await WS.del('words/' + w.id); reload(); } catch (e) { WS.fail(e); } } }, 'מחיקה'))));
+    return { el, id: w.id, dirty: () => dirty, save };
   }
 
   // ---------------- מאגר מילים ----------------
@@ -647,7 +642,6 @@
     const I = {
       adminNotifyService: h('select', h('option', { value: '' }, '— ללא —'), [...new Set([...servR.services, s.adminNotifyService].filter(Boolean))].map(x => h('option', { value: x, selected: s.adminNotifyService === x }, x.replace('mobile_app_', '')))),
       prepTime: h('input', { type: 'time', value: s.prepTime }),
-      daysAhead: h('input', { type: 'number', min: 1, max: 14, value: s.daysAhead }),
       imageSource: h('select', [['arasaac', 'איור מ-ARASAAC, ואם אין — תמונה מ-Openverse (חינם)'], ['openverse', 'חיפוש תמונה ב-Openverse (חינם)'], ['gemini', 'איור ב-Gemini (בתשלום לפי שימוש)'], ['none', 'ללא — אבחר ידנית']].map(([k, t]) => h('option', { value: k, selected: s.imageSource === k }, t))),
       notifyReviewDays: h('input', { type: 'checkbox', checked: s.notifyReviewDays })
     };
@@ -663,8 +657,9 @@
           status.gemini.configured ? h('button.btn.sm', { onclick: (e) => WS.busy(e.currentTarget, async () => { const r = await WS.post('settings/test-gemini'); WS.toast('Gemini ענה: ' + r.reply); }) }, 'בדיקה') : null),
         h('div', `אזור זמן: ${status.timeZone} · עכשיו ${status.now.time}`),
         h('p.small.muted', 'מפתח ה-API של Gemini ושמות המודלים מוגדרים בלשונית Configuration של התוסף ב-Home Assistant — הם לא נחשפים כאן.')),
-      h('div.card', h('h2', 'הכנת שיעורים והודעה למנהל'),
-        h('div.grid3', field('שעת הכנת שיעורי המחר', I.prepTime), field('כמה ימים קדימה להכין', I.daysAhead), field('המכשיר שלך להודעות', I.adminNotifyService)),
+      h('div.card', h('h2', 'הודעה יומית למנהל'),
+        h('p.small.muted', 'נשלחת רק כשיש מילים שממתינות לאישור, או כשלילד נשארו מילים מאושרות לפחות מ-3 ימים.'),
+        h('div.grid3', field('שעת ההודעה', I.prepTime), field('המכשיר שלך להודעות', I.adminNotifyService)),
         h('div.row', { style: { marginTop: '10px' } },
           h('button.btn.sm', { onclick: (e) => WS.busy(e.currentTarget, async () => { const r = await WS.post('settings/test-admin-notify', { service: I.adminNotifyService.value }); r.ok ? WS.toast('נשלחה ✓') : WS.toast('נכשלה: ' + r.error, true); }) }, '📨 התראת בדיקה למנהל'))),
       h('div.card', h('h2', 'תוכן ותמונות'), field('הצעת תמונה למילים חדשות', I.imageSource),
@@ -672,7 +667,7 @@
       h('div.card', h('h2', 'מנהלים'), h('p.small.muted', 'מנהלי Home Assistant הם תמיד מנהלים כאן. אפשר להוסיף משתמשים נוספים:'), adminChecks),
       h('div.row', h('button.btn.primary', { onclick: (e) => WS.busy(e.currentTarget, async () => {
         await WS.put('settings', {
-          adminNotifyService: I.adminNotifyService.value, prepTime: I.prepTime.value, daysAhead: I.daysAhead.value,
+          adminNotifyService: I.adminNotifyService.value, prepTime: I.prepTime.value,
           imageSource: I.imageSource.value, notifyReviewDays: I.notifyReviewDays.checked,
           adminUserIds: [...adminChecks.querySelectorAll('input:checked:not(:disabled)')].map(x => x.value)
         });
