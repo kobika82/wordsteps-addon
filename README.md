@@ -17,6 +17,8 @@ wordsteps/
     scheduler.js         הכנה יומית, התראות ותזכורות
     gemini.js            יצירת מילים/תוכן/איורים
     images.js            Openverse, שמירה והעלאה
+    sources.js           מקורות בלי AI: ARASAAC (איור+עברית), Tatoeba (משפטים), מסיחים מהמאגר
+    wordlists.json       רשימות רשמיות: Band I, Cambridge Starters/Movers/Flyers (נבנה ע"י tools/build-wordlists.js)
     ha.js                משתמשים, שירותי notify, שליחת התראות
     reports.js           דוחות ולוח בקרה
   public/                ממשק (HTML/CSS/JS בלי בנייה): app.js משותף, child.js, admin.js

@@ -289,3 +289,50 @@ test('מחיקת פרופיל מוחקת את נתוני הלמידה', async ()
   assert.equal(store.data.progress[child.id], undefined);
   assert.equal((await ok(kid('GET', 'me'))).role, 'unknown');
 });
+
+test('ייבוא מרשימה רשמית בלי AI: איור ותרגום מ-ARASAAC, משפט מ-Tatoeba, מסיחים מהמאגר', async () => {
+  const lists = await ok(admin('GET', 'wordlists'));
+  assert.deepEqual(lists.map(l => l.id), ['band1', 'starters', 'movers', 'flyers']);
+  const starters = lists.find(l => l.id === 'starters');
+  assert.ok(starters.words.find(w => w.en === 'apple').inBank, 'מילה שכבר במאגר מסומנת');
+  const HE = { banana: 'בננה', lemon: 'לימון', kite: 'עפיפון' };
+  const realFetch = global.fetch;
+  global.fetch = async (url, opts) => {
+    const u = String(url);
+    if (u.includes('api.arasaac.org')) {
+      const m = /\/(en|he)\/(?:bestsearch\/|search\/)?([^/?]+)$/.exec(u);
+      if (m[1] === 'he') return new Response(JSON.stringify({ _id: 1, keywords: [{ keyword: HE[{ 101: 'banana', 102: 'lemon', 103: 'kite' }[m[2]]] }] }));
+      const id = { banana: 101, lemon: 102, kite: 103 }[m[2]];
+      return new Response(JSON.stringify(id ? [{ _id: id, tags: ['food', 'fruit'], keywords: [{ keyword: m[2], type: 2 }] }] : []));
+    }
+    if (u.includes('static.arasaac.org')) return new Response(Buffer.from('fakepng-' + u), { headers: { 'content-type': 'image/png' } });
+    if (u.includes('tatoeba')) {
+      const w = decodeURIComponent(/q=([^&]+)/.exec(u)[1]);
+      return new Response(JSON.stringify({ data: [
+        { text: `I like the ${w}.`, translations: [[{ lang: 'heb', text: `אני אוהב את ה${HE[w]}.` }]] },
+        { text: `This ${w} is very nice.`, translations: [[{ lang: 'heb', text: `ה${HE[w]} הזה נחמד מאוד.` }]] }
+      ] }));
+    }
+    return realFetch(url, opts);
+  };
+  try {
+    const { jobId } = await ok(admin('POST', 'import', { listId: 'starters', level: 'beginner', words: ['banana', 'lemon', 'kite', 'apple'] }));
+    let job;
+    do { await new Promise(r => setTimeout(r, 50)); job = await ok(admin('GET', 'import/' + jobId)); } while (!job.finished);
+    assert.equal(job.added, 3);
+    assert.deepEqual(job.skipped, ['apple']);
+    const banana = (await ok(admin('GET', 'words?q=banana')))[0];
+    assert.equal(banana.he, 'בננה');
+    assert.equal(banana.status, 'draft');
+    assert.match(banana.image, /^img\/[0-9a-f]{20}\.png$/);
+    assert.match(banana.imageCredit, /ARASAAC/);
+    const sents = ['I like the banana.', 'This banana is very nice.'];
+    assert.ok(sents.includes(banana.exampleEn));
+    const other = sents.find(s => s !== banana.exampleEn);
+    assert.equal(banana.clozeEn, other.replace('banana', '___'), 'משפט ההשלמה שונה ממשפט הדוגמה');
+    assert.equal(banana.topic, 'food');
+    assert.equal(banana.distractorsHe.length, 3);
+    assert.ok(!banana.distractorsHe.includes('בננה'));
+    assert.equal(banana.distractorsEn.length, 3);
+  } finally { global.fetch = realFetch; }
+});

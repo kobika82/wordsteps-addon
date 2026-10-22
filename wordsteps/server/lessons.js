@@ -6,6 +6,7 @@ const { pickContent, sanitizeContent, missingFields, DEFAULT_EXERCISES, EXERCISE
 const srs = require('./srs');
 const gemini = require('./gemini');
 const images = require('./images');
+const sources = require('./sources');
 
 const MILESTONES = [10, 25, 50, 75, 100, 150, 200, 300, 400, 500, 750, 1000];
 const MATCH_MAX = 5;
@@ -52,7 +53,7 @@ function addWordToBank(store, data, { status = 'draft', source = 'manual', level
     level: LEVELS.includes(data.level || level) ? (data.level || level) : 'beginner',
     topic: String(data.topic || topic || ''),
     difficulty: Math.max(1, Math.min(10, Number(data.difficulty) || 5)),
-    imageQuery: String(data.imageQuery || ''), concrete: data.concrete !== false,
+    imageQuery: String(data.imageQuery || ''), concrete: data.concrete !== false, pos: String(data.pos || ''),
     status, source, createdAt: nowIso(), updatedAt: nowIso()
   };
   store.data.words.push(w);
@@ -60,10 +61,17 @@ function addWordToBank(store, data, { status = 'draft', source = 'manual', level
 }
 
 async function proposeImage(store, w) {
-  if (w.image || w.concrete === false) return;
+  if (w.image) return;
   const src = store.data.settings.imageSource;
   try {
-    if (src === 'openverse') {
+    if (src === 'arasaac') {
+      // איורי ARASAAC מתאימים גם למילים מופשטות; אם אין — חיפוש תמונה רגיל למילים מוחשיות
+      const pics = await sources.arasaacSearch(w.en, w.pos);
+      if (pics.length) Object.assign(w, await sources.importArasaac(pics[0]._id));
+      else if (w.concrete !== false) { const r = await images.autoPick(w.imageQuery || w.en); if (r) Object.assign(w, r); }
+    } else if (w.concrete === false) {
+      return;
+    } else if (src === 'openverse') {
       const r = await images.autoPick(w.imageQuery || w.en);
       if (r) Object.assign(w, r);
     } else if (src === 'gemini' && gemini.isConfigured()) {

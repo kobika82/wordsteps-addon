@@ -14,9 +14,10 @@ function emptyData() {
       adminNotifyService: '',     // notify.mobile_app_* של המנהל
       prepTime: '19:00',          // שעת הכנת שיעורי המחר והודעה למנהל
       daysAhead: 1,               // כמה ימים קדימה להכין אוטומטית
-      imageSource: 'openverse',   // openverse | gemini | none — הצעת תמונה אוטומטית למילים חדשות
+      imageSource: 'arasaac',     // arasaac (ואז openverse) | openverse | gemini | none — הצעת תמונה אוטומטית למילים חדשות
       notifyReviewDays: true,     // לשלוח התראה גם ביום שיש בו רק שיעור חזרה
-      adminUserIds: []            // מנהלים נוספים שהוגדרו מתוך האפליקציה
+      adminUserIds: [],           // מנהלים נוספים שהוגדרו מתוך האפליקציה
+      migratedArasaac: true
     },
     users: {},          // משתמשי HA שנכנסו לאפליקציה: { id: {id,name,displayName,lastSeen} }
     children: [],
@@ -44,7 +45,10 @@ class Store {
       const d = JSON.parse(fs.readFileSync(this.file, 'utf8'));
       const base = emptyData();
       // השלמת שדות שנוספו בגרסאות מאוחרות יותר
-      return { ...base, ...d, seq: { ...base.seq, ...d.seq }, settings: { ...base.settings, ...d.settings } };
+      const data = { ...base, ...d, seq: { ...base.seq, ...d.seq }, settings: { ...base.settings, ...d.settings } };
+      // 0.1.3: ARASAAC הפך לברירת המחדל לתמונות (המשתמש בחר בכך)
+      if (!(d.settings && d.settings.migratedArasaac)) { if (data.settings.imageSource === 'openverse') data.settings.imageSource = 'arasaac'; data.settings.migratedArasaac = true; }
+      return data;
     } catch (e) {
       if (e.code !== 'ENOENT') {
         // קובץ פגום — לא דורסים אותו בשקט

@@ -11,6 +11,7 @@ const ha = require('./ha');
 const gemini = require('./gemini');
 const images = require('./images');
 const L = require('./lessons');
+const sources = require('./sources');
 const R = require('./reports');
 const scheduler = require('./scheduler');
 const { HttpError } = U;
@@ -297,16 +298,73 @@ route('GET', '/api/words', 'admin', async ({ query }) => {
 });
 route('POST', '/api/words', 'admin', async ({ body }) => {
   let data = body;
-  if (body.autofill) {
+  if (store.data.words.some(w => w.en.toLowerCase() === String(body.en || '').trim().toLowerCase())) {
+    throw new HttpError(409, `המילה "${body.en}" כבר קיימת במאגר`);
+  }
+  // autofill: 'gemini' (AI) או 'sources' (ARASAAC + Tatoeba, בלי AI). true נשמר לתאימות = gemini
+  const mode = body.autofill === true ? 'gemini' : body.autofill;
+  if (mode === 'gemini') {
     const g = await gemini.completeWord({ en: body.en, level: body.level });
     data = { ...g, en: body.en || g.en, level: body.level, topic: body.topic || g.topic };
+  } else if (mode === 'sources') {
+    const { word } = await sources.buildWord(String(body.en).trim(), body.pos);
+    data = { ...word, level: body.level, topic: body.topic || word.topic };
   }
   const before = store.data.words.length;
-  const w = L.addWordToBank(store, data, { status: body.approve ? 'approved' : 'draft', source: body.autofill ? 'gemini' : 'manual' });
+  const w = L.addWordToBank(store, data, { status: body.approve ? 'approved' : 'draft', source: mode === 'sources' ? 'arasaac+tatoeba' : mode ? 'gemini' : 'manual' });
   if (store.data.words.length === before) throw new HttpError(409, `המילה "${w.en}" כבר קיימת במאגר`);
-  if (body.autofill) await L.proposeImage(store, w);
+  if (mode === 'sources') sources.fillDistractors(store, w);
+  if (mode) await L.proposeImage(store, w);
   store.save();
   return w;
+});
+
+// ---- ייבוא מרשימות מילים רשמיות (בלי AI) ----
+route('GET', '/api/wordlists', 'admin', async () => {
+  const inBank = new Set(store.data.words.map(w => w.en.toLowerCase()));
+  return sources.wordLists().map(l => ({
+    id: l.id, name: l.name, level: l.level, source: l.source, count: l.words.length,
+    words: l.words.map(w => ({ ...w, inBank: inBank.has(w.en.toLowerCase()) }))
+  }));
+});
+const importJobs = new Map();
+route('POST', '/api/import', 'admin', async ({ body }) => {
+  const list = sources.wordLists().find(l => l.id === body.listId);
+  if (!list) throw new HttpError(404, 'הרשימה לא נמצאה');
+  const level = C.LEVELS.includes(body.level) ? body.level : list.level;
+  const wanted = new Set((body.words || []).map(s => String(s).toLowerCase()));
+  const words = list.words.filter(w => wanted.has(w.en.toLowerCase())).slice(0, 100);
+  if (!words.length) throw new HttpError(400, 'לא נבחרו מילים');
+  const job = { id: Math.random().toString(36).slice(2), total: words.length, done: 0, added: [], skipped: [], notes: [], finished: false, error: '' };
+  importJobs.set(job.id, job);
+  (async () => {
+    const queue = words.slice();
+    const worker = async () => {
+      while (queue.length) {
+        const w = queue.shift();
+        try {
+          if (store.data.words.some(x => x.en.toLowerCase() === w.en.toLowerCase())) { job.skipped.push(w.en); continue; }
+          const { word, notes } = await sources.buildWord(w.en, w.pos);
+          const saved = L.addWordToBank(store, { ...word, level }, { status: 'draft', source: `list:${list.id}` });
+          job.added.push(saved.id);
+          if (notes.length) job.notes.push(`${w.en}: ${notes.join(', ')}`);
+        } catch (e) {
+          job.notes.push(`${w.en}: ${e.message}`);
+        } finally { job.done++; }
+      }
+    };
+    await Promise.all([worker(), worker(), worker()]);
+    // מסיחים בלי AI — אחרי שכל המילים נכנסו, כדי שיהיה ממה לבחור
+    for (const id of job.added) { const w = store.word(id); if (w) sources.fillDistractors(store, w); }
+    store.save();
+    job.finished = true;
+  })().catch(e => { job.error = e.message; job.finished = true; });
+  return { jobId: job.id, total: job.total };
+});
+route('GET', '/api/import/:id', 'admin', async ({ params }) => {
+  const job = importJobs.get(params.id);
+  if (!job) throw new HttpError(404, 'הייבוא לא נמצא');
+  return { ...job, added: job.added.length };
 });
 route('POST', '/api/words/generate', 'admin', async ({ body }) => {
   const level = C.LEVELS.includes(body.level) ? body.level : 'beginner';
@@ -354,8 +412,12 @@ route('DELETE', '/api/words/:id', 'admin', async ({ params }) => {
 });
 
 // ---- מנהל: תמונות ----
-route('GET', '/api/images/search', 'admin', async ({ query }) => ({ results: await images.search(query.get('q') || '') }));
-route('POST', '/api/images/import', 'admin', async ({ body }) => images.importOpenverse(body.id, body.credit));
+route('GET', '/api/images/search', 'admin', async ({ query }) => ({
+  results: query.get('source') === 'openverse' ? await images.search(query.get('q') || '') : await sources.arasaacImages(query.get('q') || '')
+}));
+route('POST', '/api/images/import', 'admin', async ({ body }) => String(body.id).startsWith('arasaac:')
+  ? sources.importArasaac(String(body.id).slice(8))
+  : images.importOpenverse(body.id, body.credit));
 route('POST', '/api/images/upload', 'admin', async ({ body }) => ({ image: images.saveDataUrl(body.dataUrl), imageCredit: body.credit || '' }));
 route('POST', '/api/images/generate', 'admin', async ({ body }) => {
   const g = await gemini.generateImage({ en: body.en, he: body.he });
@@ -484,7 +546,7 @@ route('PUT', '/api/settings', 'admin', async ({ body }) => {
   if ('adminNotifyService' in body) s.adminNotifyService = /^mobile_app_[a-z0-9_]+$/.test(body.adminNotifyService || '') ? body.adminNotifyService : '';
   if ('prepTime' in body && U.toMinutes(body.prepTime) != null) s.prepTime = body.prepTime;
   if ('daysAhead' in body) s.daysAhead = int(body.daysAhead, 1, 14, 1);
-  if ('imageSource' in body && ['openverse', 'gemini', 'none'].includes(body.imageSource)) s.imageSource = body.imageSource;
+  if ('imageSource' in body && ['arasaac', 'openverse', 'gemini', 'none'].includes(body.imageSource)) s.imageSource = body.imageSource;
   if ('notifyReviewDays' in body) s.notifyReviewDays = !!body.notifyReviewDays;
   if ('adminUserIds' in body && Array.isArray(body.adminUserIds)) s.adminUserIds = body.adminUserIds.map(String);
   store.save();

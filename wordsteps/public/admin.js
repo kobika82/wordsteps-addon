@@ -278,10 +278,18 @@
   async function imageSearch(query, onPick) {
     const qi = h('input', { type: 'search', value: query, dir: 'ltr' });
     const res = h('div.imgresults');
+    let source = 'arasaac';
+    const tabs = h('div.row', { style: { marginTop: '8px' } });
+    const drawTabs = () => {
+      tabs.innerHTML = '';
+      for (const [k, t] of [['arasaac', '🎨 איורים (ARASAAC)'], ['openverse', '📷 תמונות (Openverse)']]) {
+        tabs.appendChild(h('button.btn.sm' + (source === k ? '.primary' : ''), { onclick: () => { source = k; drawTabs(); run(); } }, t));
+      }
+    };
     const run = async () => {
       res.innerHTML = '<div class="muted">מחפש…</div>';
       try {
-        const r = await WS.get('images/search?q=' + encodeURIComponent(qi.value));
+        const r = await WS.get(`images/search?source=${source}&q=` + encodeURIComponent(qi.value));
         res.innerHTML = '';
         if (!r.results.length) res.appendChild(h('div.muted', 'לא נמצאו תמונות.'));
         r.results.forEach(x => res.appendChild(h('button', { title: x.credit, onclick: async (e) => {
@@ -291,7 +299,9 @@
       } catch (e) { res.innerHTML = ''; res.appendChild(h('div.alert.bad', e.message)); }
     };
     qi.addEventListener('keydown', e => { if (e.key === 'Enter') run(); });
-    const m = WS.modal('חיפוש תמונה (Openverse — תמונות ברישיון פתוח)', h('div', h('div.row', h('div.grow', qi), h('button.btn.primary', { onclick: run }, 'חיפוש')), res), { wide: true });
+    const m = WS.modal('חיפוש תמונה', h('div', h('div.row', h('div.grow', qi), h('button.btn.primary', { onclick: run }, 'חיפוש')), tabs, res,
+      h('p.small.muted', 'ARASAAC: איורים ברישיון CC BY-NC-SA (שימוש לא מסחרי). Openverse: תמונות ברישיון פתוח.')), { wide: true });
+    drawTabs();
     run();
   }
   async function imageGenerate(c, btn) {
@@ -422,6 +432,7 @@
     page('מאגר מילים',
       h('div.row', { style: { marginBottom: '12px' } },
         h('button.btn.primary', { onclick: () => newWord(load) }, '+ מילה חדשה'),
+        h('button.btn', { onclick: () => importList(load) }, '📚 ייבוא מרשימה (בלי AI)'),
         h('button.btn', { onclick: () => generate(load) }, '✨ יצירת מילים עם Gemini')),
       h('div.grid3', { style: { marginBottom: '12px' } }, q, fl, ft, fs),
       list);
@@ -433,17 +444,81 @@
       en: h('input', { type: 'text', dir: 'ltr' }),
       level: h('select', Object.entries(M.levels).map(([k, t]) => h('option', { value: k }, t))),
       topic: h('select', h('option', { value: '' }, '—'), Object.entries(M.topics).map(([k, t]) => h('option', { value: k }, t))),
-      auto: h('input', { type: 'checkbox', checked: true })
+      auto: h('select', [['sources', 'איור ותרגום מ-ARASAAC + משפט מ-Tatoeba (בלי AI)'], ['gemini', 'השלמה ב-Gemini (AI)'], ['', 'ללא — אמלא ידנית']].map(([k, t]) => h('option', { value: k }, t)))
     };
     const m = WS.modal('מילה חדשה', h('div',
       h('div.grid3', field('מילה באנגלית', I.en), field('רמה', I.level), field('נושא', I.topic)),
-      h('label.checks', { style: { margin: '10px 0' } }, I.auto, ' השלמת תרגום, משפטים ותשובות ב-Gemini'),
+      h('div', { style: { margin: '10px 0' } }, field('השלמת התוכן', I.auto)),
       h('button.btn.primary', { onclick: (e) => WS.busy(e.currentTarget, async () => {
         if (!I.en.value.trim()) throw new Error('יש להקליד מילה');
-        const w = await WS.post('words', { en: I.en.value.trim(), level: I.level.value, topic: I.topic.value, autofill: I.auto.checked });
+        const w = await WS.post('words', { en: I.en.value.trim(), level: I.level.value, topic: I.topic.value, autofill: I.auto.value || false });
         m.close(); done(); editWord(w, done);
       }) }, 'הוספה')));
     I.en.focus();
+  }
+
+  // ייבוא מרשימת מילים רשמית: איור + תרגום מ-ARASAAC, משפטים מ-Tatoeba
+  async function importList(done) {
+    const lists = await WS.get('wordlists');
+    const POS_HE = { n: 'שם עצם', v: 'פועל', adj: 'תואר', adv: 'תואר הפועל', prep: 'מילת יחס' };
+    const sel = new Set();
+    const listSel = h('select', lists.map(l => h('option', { value: l.id }, `${l.name} (${l.count})`)));
+    const level = h('select', Object.entries(M.levels).map(([k, t]) => h('option', { value: k }, t)));
+    const q = h('input', { type: 'search', placeholder: 'סינון', dir: 'ltr' });
+    const hideBank = h('input', { type: 'checkbox', checked: true });
+    const nextN = h('input', { type: 'number', value: 20, min: 1, max: 100 });
+    const grid = h('div.chips', { style: { maxHeight: '320px', overflowY: 'auto', padding: '4px' } });
+    const count = h('b');
+    const go = h('button.btn.primary', '📥 ייבוא');
+    const status = h('div');
+    const cur = () => lists.find(l => l.id === listSel.value);
+    const visible = () => cur().words.filter(w => (!hideBank.checked || !w.inBank) && (!q.value || w.en.includes(q.value.toLowerCase())));
+    const draw = () => {
+      grid.innerHTML = '';
+      for (const w of visible()) {
+        const cb = h('input', { type: 'checkbox', checked: sel.has(w.en), disabled: w.inBank, onchange: () => { cb.checked ? sel.add(w.en) : sel.delete(w.en); count.textContent = sel.size; } });
+        grid.appendChild(h('label.chip', { title: POS_HE[w.pos] || '', style: { opacity: w.inBank ? .5 : 1 } }, cb, ' ', en(w.en), w.inBank ? ' ✓' : ''));
+      }
+      count.textContent = sel.size;
+    };
+    listSel.onchange = () => { sel.clear(); level.value = cur().level; draw(); };
+    q.oninput = draw; hideBank.onchange = draw;
+    go.onclick = () => WS.busy(go, async () => {
+      if (!sel.size) throw new Error('לא נבחרו מילים');
+      const { jobId, total } = await WS.post('import', { listId: listSel.value, level: level.value, words: [...sel] });
+      const bar = h('div.pbar', { style: { height: '12px', background: '#eef' } }, h('div', { style: { width: '0%' } }));
+      status.innerHTML = '';
+      status.append(h('p', `מייבא ${total} מילים — לוקח כ-2 שניות למילה…`), bar);
+      let job;
+      do {
+        await new Promise(r => setTimeout(r, 1200));
+        job = await WS.get('import/' + jobId);
+        bar.firstChild.style.width = Math.round((job.done / job.total) * 100) + '%';
+      } while (!job.finished);
+      status.innerHTML = '';
+      status.append(
+        h('div.alert.' + (job.error ? 'bad' : 'info'), h('div',
+          job.error ? 'הייבוא נעצר: ' + job.error : `נוספו ${job.added} מילים למאגר כטיוטות` + (job.skipped.length ? ` (${job.skipped.length} כבר היו במאגר)` : '') + '. ילד יראה אותן רק אחרי אישור.',
+          job.notes.length ? h('details', { style: { marginTop: '6px' } }, h('summary', `${job.notes.length} הערות (חסר איור/תרגום/משפט — להשלים באישור)`),
+            h('ul.small', job.notes.map(n => h('li', n)))) : null)));
+      sel.clear();
+      lists.splice(0, lists.length, ...(await WS.get('wordlists')));
+      draw(); done();
+    });
+    WS.modal('ייבוא מרשימת מילים', h('div',
+      h('div.grid2', field('רשימה', listSel), field('רמה במאגר', level)),
+      h('div.row', { style: { margin: '10px 0' } },
+        h('div', { style: { width: '160px' } }, q),
+        h('label.checks', hideBank, ' להסתיר מילים שכבר במאגר'),
+        h('div.grow'),
+        h('span', 'בחירת'), h('div', { style: { width: '70px' } }, nextN),
+        h('button.btn.sm', { onclick: () => { let n = Number(nextN.value) || 20; for (const w of visible()) { if (n <= 0) break; if (!w.inBank && !sel.has(w.en)) { sel.add(w.en); n--; } } draw(); } }, 'הבאות')),
+      grid,
+      h('div.row', { style: { marginTop: '10px' } }, h('span', 'נבחרו: ', count), h('div.grow'), go),
+      status,
+      h('p.small.muted', 'לכל מילה: איור ותרגום לעברית מ-ARASAAC, ומשפט דוגמה עם תרגום מ-Tatoeba — בלי AI. הכול נכנס כטיוטה לאישורך.')), { wide: true });
+    level.value = cur().level;
+    draw();
   }
 
   function generate(done) {
@@ -573,7 +648,7 @@
       adminNotifyService: h('select', h('option', { value: '' }, '— ללא —'), [...new Set([...servR.services, s.adminNotifyService].filter(Boolean))].map(x => h('option', { value: x, selected: s.adminNotifyService === x }, x.replace('mobile_app_', '')))),
       prepTime: h('input', { type: 'time', value: s.prepTime }),
       daysAhead: h('input', { type: 'number', min: 1, max: 14, value: s.daysAhead }),
-      imageSource: h('select', [['openverse', 'חיפוש תמונה ב-Openverse (חינם)'], ['gemini', 'איור ב-Gemini (בתשלום לפי שימוש)'], ['none', 'ללא — אבחר ידנית']].map(([k, t]) => h('option', { value: k, selected: s.imageSource === k }, t))),
+      imageSource: h('select', [['arasaac', 'איור מ-ARASAAC, ואם אין — תמונה מ-Openverse (חינם)'], ['openverse', 'חיפוש תמונה ב-Openverse (חינם)'], ['gemini', 'איור ב-Gemini (בתשלום לפי שימוש)'], ['none', 'ללא — אבחר ידנית']].map(([k, t]) => h('option', { value: k, selected: s.imageSource === k }, t))),
       notifyReviewDays: h('input', { type: 'checkbox', checked: s.notifyReviewDays })
     };
     const adminChecks = h('div.checks', usersR.users.map(u => h('label',
