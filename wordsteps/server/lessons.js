@@ -1,7 +1,7 @@
 'use strict';
 // בניית השיעור היומי, רצף התרגילים, בדיקת תשובות וסיכום שיעור.
 // כלל היסוד: המנהל מאשר מילים במאגר, והילד רואה רק מילים מאושרות — בשיעור החדש ובחזרות.
-const { today, dowOf, shuffle, normalizeAnswer, levenshtein, HttpError, now } = require('./util');
+const { today, addDays, dowOf, shuffle, normalizeAnswer, levenshtein, HttpError, now } = require('./util');
 const { pickContent, sanitizeContent, missingFields, DEFAULT_EXERCISES, EXERCISE_TYPES, LEVELS } = require('./content');
 const srs = require('./srs');
 const gemini = require('./gemini');
@@ -108,19 +108,35 @@ function candidateWords(store, child, exclude = new Set()) {
 }
 
 // כמה מילים מאושרות שהילד עוד לא למד נשארו — ולכמה ימי לימוד הן מספיקות
+// השיעורים מתחילים מתאריך שנקבע בהגדרות (ריק = מיד)
+function startDate(store) { return store.data.settings.startDate || ''; }
+function beforeStart(store, date) { const s = startDate(store); return !!s && date < s; }
+
+// מלאי: כמה מילים מאושרות שהילד עוד לא למד, לכמה שיעורים הן מספיקות, ועד איזה תאריך (לפי ימי הלימוד שלו)
 function poolInfo(store, child) {
   const exclude = new Set([...learnedIds(store, child.id), ...reservedIds(store, child.id)]);
   const available = candidateWords(store, child, exclude).length;
-  const days = child.newPerDay ? Math.floor(available / child.newPerDay) : null;
+  const per = child.newPerDay || 0;
+  const lessons = per ? Math.ceil(available / per) : 0;
   const drafts = store.data.words.filter(w => w.status === 'draft' && w.level === child.level).length;
-  return { available, days, drafts };
+  let lastDate = null;
+  if (lessons && child.active && (child.days || []).length) {
+    const t = today();
+    const hasToday = store.data.lessons.some(l => l.childId === child.id && l.date === t && l.kind === 'daily');
+    let d = hasToday ? addDays(t, 1) : t;
+    if (startDate(store) > d) d = startDate(store);
+    for (let n = 0, i = 0; i < 1000; i++, d = addDays(d, 1)) {
+      if (isStudyDay(child, d) && ++n === lessons) { lastDate = d; break; }
+    }
+  }
+  return { available, perLesson: per, lessons, lastDate, drafts };
 }
 
 // יוצר (פעם אחת) את השיעור של היום. סינכרוני — כך שאין מצב של שני שיעורים לאותו יום.
 function ensureDailyLesson(store, child, date = today()) {
   const existing = store.data.lessons.find(l => l.childId === child.id && l.date === date && l.kind === 'daily');
   if (existing) return existing;
-  if (!child.active || !isStudyDay(child, date)) return null;
+  if (!child.active || !isStudyDay(child, date) || beforeStart(store, date)) return null;
   const exclude = new Set([...learnedIds(store, child.id), ...reservedIds(store, child.id)]);
   const pool = candidateWords(store, child, exclude);
   if (!pool.length) {
@@ -291,6 +307,7 @@ function homeState(store, child) {
   const learned = Object.values(store.childProgress(child.id)).filter(r => r.sessions > 0).length;
   const canReview = learned >= 3;
   let state;
+  if (beforeStart(store, date)) return { mode: 'soon', startDate: startDate(store), studyDay: isStudyDay(child, date), date };
   if (inProgress) state = { mode: 'resume', lessonId: inProgress.id, kind: inProgress.kind };
   else if (daily && daily.status === 'approved') state = { mode: 'start', lessonId: daily.id, newCount: daily.items.length, reviewCount: Math.min(child.reviewPerDay, learned) };
   else if (daily && daily.status === 'completed') state = { mode: 'done', lessonId: daily.id, canPractice: canReview };
@@ -460,7 +477,7 @@ function displayStatus(l) {
 }
 
 module.exports = {
-  addWordToBank, generateWords, proposeImage, isStudyDay, candidateWords, poolInfo, ensureDailyLesson, approveWord,
+  addWordToBank, generateWords, proposeImage, isStudyDay, startDate, candidateWords, poolInfo, ensureDailyLesson, approveWord,
   buildPlan, checkAnswer, answerStep, homeState, startLesson, answer, advance, complete,
   nextLessonItems, startPreview, previewAnswer, displayStatus, notice, EXERCISE_TYPES
 };

@@ -50,6 +50,11 @@
         h('h2', `${g('סיימת', 'סיימת', 'סיימתם')} את השיעור של היום!`),
         h('p', 'כל הכבוד. נתראה בשיעור הבא 😊'),
         d.canPractice ? startBtn('תרגול נוסף (רשות) 💪', '.purple', { mode: 'practice' }) : null);
+    } else if (d.mode === 'soon') {
+      card = h('div.kid-card.center',
+        h('div', { style: { fontSize: '64px' } }, '🚀'),
+        h('h2', 'עוד מעט מתחילים!'),
+        h('p', `השיעור הראשון מחכה לך ב${WS.fmtDate(d.startDate)}. נתראה! 😊`));
     } else if (d.mode === 'review') {
       card = h('div.kid-card.center',
         h('div', { style: { fontSize: '64px' } }, '🔁'),

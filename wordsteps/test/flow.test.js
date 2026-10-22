@@ -120,7 +120,8 @@ test('השיעור היומי נבנה מעצמו ממילים מאושרות �
   const dash = await ok(admin('GET', 'dashboard'));
   const me = dash.children.find(c => c.id === child.id);
   assert.equal(me.todayStatus, 'approved');
-  assert.deepEqual([me.pool.available, me.pool.days], [4, 1], 'נשארו 4 מאושרות = יום אחד');
+  assert.deepEqual([me.pool.available, me.pool.lessons, me.pool.lastDate], [4, 1, '2026-10-13'], 'נשארו 4 מאושרות = שיעור אחד, מחר');
+  assert.deepEqual(dash.stock.find(x => x.level === 'beginner'), { level: 'beginner', approved: 8, drafts: 6 });
   assert.equal(dash.draftsCount, 6);
 });
 
@@ -218,7 +219,7 @@ test('הודעה יומית למנהל נשלחת בשעה שנקבעה, רק כ
   assert.match(adminMsgs[0].message, /ממתינות לאישור/);
   // אחרי שהכול אושר — למחרת אין הודעה (עדיין יש מילים לכמה ימים?) — 6 מילים / 4 ביום = יום אחד, לכן כן תישלח אזהרה
   await ok(admin('POST', 'words/approve', { ids: store.data.words.filter(w => w.status === 'draft').map(w => w.id) }));
-  assert.match(scheduler.adminDigest(store), /נשארו מילים מאושרות ל-1 ימים/);
+  assert.match(scheduler.adminDigest(store), /נשארו מילים מאושרות ל-2 שיעורים/);
   assert.doesNotMatch(scheduler.adminDigest(store), /ממתינות/);
 });
 
@@ -279,6 +280,24 @@ test('כשל בשליחת התראה נרשם ביומן', async () => {
   const r = await ok(admin('POST', `children/${child.id}/test-notify`, {}));
   assert.equal(r.ok, false);
   assert.match(r.error, /unreachable/);
+});
+
+test('תאריך התחלה: לפניו אין שיעור ואין התראה; ממנו — השיעור נבנה', async () => {
+  const sent = [];
+  ha.notify = async (service, msg) => { sent.push(msg); };
+  await ok(admin('PUT', 'settings', { startDate: '2026-10-21' }));
+  setClock('2026-10-20T13:30:00Z'); // שלישי, 16:30 — לפני ההתחלה
+  const home = await ok(kid('GET', 'child/home'));
+  assert.equal(home.mode, 'soon');
+  assert.equal(home.startDate, '2026-10-21');
+  await scheduler.tick(store);
+  assert.equal(sent.length, 0);
+  assert.equal(dailyLessons('2026-10-20').length, 0);
+  const dash = await ok(admin('GET', 'dashboard'));
+  assert.ok(dash.children.find(c => c.id === child.id).pool.lastDate >= '2026-10-21', 'המלאי נספר מתאריך ההתחלה');
+  setClock('2026-10-21T10:00:00Z');
+  assert.notEqual((await ok(kid('GET', 'child/home'))).mode, 'soon');
+  await ok(admin('PUT', 'settings', { startDate: '' }));
 });
 
 test('מחיקת פרופיל מוחקת את נתוני הלמידה', async () => {

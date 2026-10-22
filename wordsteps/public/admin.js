@@ -44,7 +44,24 @@
   function poolText(p) {
     if (!p) return '—';
     if (!p.available) return h('span.badge.bad', 'אין מילים מאושרות');
-    return h('span.badge' + (p.days < 3 ? '.warn' : '.ok'), `${p.available} מילים · ≈${p.days} ימים`);
+    return h('span.badge' + (p.lessons < 3 ? '.warn' : '.ok'), p.lessons === 1 ? 'שיעור אחד' : `${p.lessons} שיעורים`);
+  }
+  // מלאי המילים המאושרות: לכל ילד — כמה מילים, לכמה שיעורים, ועד מתי; ולכל רמה — מאושרות מול ממתינות
+  function stockCard(d) {
+    const active = d.children.filter(c => c.active);
+    return h('div.card',
+      h('h2', '📦 מלאי מילים מאושרות'),
+      d.startDate && d.startDate > d.date ? h('div.alert.info', '🗓️', h('div', `השיעורים מתחילים ב${WS.fmtDate(d.startDate)}. עד אז לא נבנים שיעורים ולא נשלחות התראות.`)) : null,
+      active.length ? h('div.table-wrap', h('table.t',
+        h('tr', h('th', 'ילד'), h('th', 'רמה'), h('th', 'מילים מאושרות שעוד לא למד'), h('th', 'מילים בשיעור'), h('th', 'מספיק ל-'), h('th', 'עד'), h('th', 'ממתינות לאישור ברמה')),
+        active.map(c => h('tr',
+          h('td', h('b', c.name)), h('td', M.levels[c.level] || c.level),
+          h('td', String(c.pool.available)), h('td', String(c.pool.perLesson)),
+          h('td', poolText(c.pool)),
+          h('td', c.pool.lastDate ? WS.fmtDate(c.pool.lastDate) : '—'),
+          h('td', c.pool.drafts ? h('a', { href: '#/approve' }, String(c.pool.drafts)) : '0'))))) : h('p.muted', 'אין ילדים פעילים.'),
+      h('div.row', { style: { marginTop: '10px' } }, h('span.small.muted', 'במאגר לפי רמה:'),
+        d.stock.map(x => h('span.chip', `${M.levels[x.level]}: ${x.approved} מאושרות` + (x.drafts ? ` · ${x.drafts} ממתינות` : '')))));
   }
   async function dashboard() {
     const d = await WS.get('dashboard');
@@ -61,11 +78,10 @@
       h('p.small.muted', 'השיעורים נבנים אוטומטית בכל יום, רק ממילים שאישרתם. אין צורך לאשר שיעורים.'));
     const kids = h('div.card', h('h2', 'הילדים היום'),
       d.children.length ? h('div.table-wrap', h('table.t',
-        h('tr', h('th', 'שם'), h('th', 'השיעור היום'), h('th', 'מילים מאושרות שנותרו'), h('th', 'מילים שנלמדו'), h('th', 'נלמדו היטב'), h('th', 'דורשות חיזוק'), h('th', 'הצלחה (7 ימים)'), h('th', 'התראה אחרונה')),
+        h('tr', h('th', 'שם'), h('th', 'השיעור היום'), h('th', 'מילים שנלמדו'), h('th', 'נלמדו היטב'), h('th', 'דורשות חיזוק'), h('th', 'הצלחה (7 ימים)'), h('th', 'התראה אחרונה')),
         d.children.map(c => h('tr.click', { onclick: () => WS.go(c.todayLessonId ? '#/lesson/' + c.todayLessonId : '#/child/' + c.id) },
           h('td', h('b', c.name), c.active ? null : h('span.badge', ' מושהה')),
           h('td', badge(LESSON_ST, c.todayStatus)),
-          h('td', poolText(c.pool)),
           h('td', String(c.learned)), h('td', String(c.status.mastered || 0)), h('td', String(c.status.needs_reinforcement || 0)),
           h('td', c.weekAccuracy == null ? '—' : c.weekAccuracy + '%'),
           h('td', c.lastNotification ? h('span.badge' + (c.lastNotification.ok ? '.ok' : '.bad'), (c.lastNotification.ok ? 'נשלחה ' : 'נכשלה ') + WS.fmtTime(c.lastNotification.at)) : '—')))))
@@ -74,7 +90,7 @@
     const hardCard = hard.length ? h('div.card', h('h2', '⚠️ מילים קשות'),
       hard.map(c => h('div', { style: { marginBottom: '8px' } }, h('b', c.name + ': '),
         h('span.chips', c.hard.map(w => h('span.chip', en(w.en), ` — ${w.he} (${w.wrong} טעויות)`)))))) : null;
-    page('לוח בקרה', ...alerts, approveCard, kids, hardCard,
+    page('לוח בקרה', ...alerts, stockCard(d), approveCard, kids, hardCard,
       h('p.small.muted', `מאגר המילים: ${d.bank.total} מילים, ${d.bank.approved} מאושרות. אזור זמן: ${d.status.timeZone}.`));
   }
 
@@ -642,6 +658,7 @@
     const I = {
       adminNotifyService: h('select', h('option', { value: '' }, '— ללא —'), [...new Set([...servR.services, s.adminNotifyService].filter(Boolean))].map(x => h('option', { value: x, selected: s.adminNotifyService === x }, x.replace('mobile_app_', '')))),
       prepTime: h('input', { type: 'time', value: s.prepTime }),
+      startDate: h('input', { type: 'date', value: s.startDate || '' }),
       imageSource: h('select', [['arasaac', 'איור מ-ARASAAC, ואם אין — תמונה מ-Openverse (חינם)'], ['openverse', 'חיפוש תמונה ב-Openverse (חינם)'], ['gemini', 'איור ב-Gemini (בתשלום לפי שימוש)'], ['none', 'ללא — אבחר ידנית']].map(([k, t]) => h('option', { value: k, selected: s.imageSource === k }, t))),
       notifyReviewDays: h('input', { type: 'checkbox', checked: s.notifyReviewDays })
     };
@@ -657,6 +674,9 @@
           status.gemini.configured ? h('button.btn.sm', { onclick: (e) => WS.busy(e.currentTarget, async () => { const r = await WS.post('settings/test-gemini'); WS.toast('Gemini ענה: ' + r.reply); }) }, 'בדיקה') : null),
         h('div', `אזור זמן: ${status.timeZone} · עכשיו ${status.now.time}`),
         h('p.small.muted', 'מפתח ה-API של Gemini ושמות המודלים מוגדרים בלשונית Configuration של התוסף ב-Home Assistant — הם לא נחשפים כאן.')),
+      h('div.card', h('h2', 'תחילת השיעורים'),
+        h('div', { style: { maxWidth: '220px' } }, field('השיעורים מתחילים בתאריך', I.startDate)),
+        h('p.small.muted', 'עד התאריך הזה לא נבנים שיעורים ולא נשלחות התראות לילדים. ריק = מיד.')),
       h('div.card', h('h2', 'הודעה יומית למנהל'),
         h('p.small.muted', 'נשלחת רק כשיש מילים שממתינות לאישור, או כשלילד נשארו מילים מאושרות לפחות מ-3 ימים.'),
         h('div.grid3', field('שעת ההודעה', I.prepTime), field('המכשיר שלך להודעות', I.adminNotifyService)),
@@ -667,7 +687,7 @@
       h('div.card', h('h2', 'מנהלים'), h('p.small.muted', 'מנהלי Home Assistant הם תמיד מנהלים כאן. אפשר להוסיף משתמשים נוספים:'), adminChecks),
       h('div.row', h('button.btn.primary', { onclick: (e) => WS.busy(e.currentTarget, async () => {
         await WS.put('settings', {
-          adminNotifyService: I.adminNotifyService.value, prepTime: I.prepTime.value,
+          adminNotifyService: I.adminNotifyService.value, prepTime: I.prepTime.value, startDate: I.startDate.value,
           imageSource: I.imageSource.value, notifyReviewDays: I.notifyReviewDays.checked,
           adminUserIds: [...adminChecks.querySelectorAll('input:checked:not(:disabled)')].map(x => x.value)
         });

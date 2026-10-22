@@ -466,6 +466,7 @@ route('PUT', '/api/settings', 'admin', async ({ body }) => {
   if ('daysAhead' in body) s.daysAhead = int(body.daysAhead, 1, 14, 1);
   if ('imageSource' in body && ['arasaac', 'openverse', 'gemini', 'none'].includes(body.imageSource)) s.imageSource = body.imageSource;
   if ('notifyReviewDays' in body) s.notifyReviewDays = !!body.notifyReviewDays;
+  if ('startDate' in body) s.startDate = /^\d{4}-\d{2}-\d{2}$/.test(body.startDate || '') ? body.startDate : '';
   if ('adminUserIds' in body && Array.isArray(body.adminUserIds)) s.adminUserIds = body.adminUserIds.map(String);
   store.save();
   return s;

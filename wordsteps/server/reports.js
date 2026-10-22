@@ -86,6 +86,12 @@ function dashboard(store) {
   return {
     date, children,
     draftsCount: store.data.words.filter(w => w.status === 'draft').length,
+    startDate: L.startDate(store),
+    stock: ['beginner', 'basic', 'intermediate', 'advanced'].map(level => ({
+      level,
+      approved: store.data.words.filter(w => w.level === level && w.status === 'approved').length,
+      drafts: store.data.words.filter(w => w.level === level && w.status === 'draft').length
+    })),
     notices: store.data.adminNotices.filter(n => !n.dismissed).slice(0, 20),
     bank: { total: store.data.words.length, approved: store.data.words.filter(w => w.status === 'approved').length }
   };

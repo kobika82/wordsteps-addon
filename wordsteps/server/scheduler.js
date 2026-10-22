@@ -86,9 +86,9 @@ const LOW_DAYS = 3;
 function adminDigest(store) {
   const drafts = store.data.words.filter(w => w.status === 'draft').length;
   const low = store.data.children.filter(c => c.active && c.newPerDay > 0).map(c => ({ c, p: L.poolInfo(store, c) }))
-    .filter(x => x.p.days < LOW_DAYS);
+    .filter(x => x.p.lessons < LOW_DAYS);
   const parts = [];
-  if (low.length) parts.push(low.map(x => x.p.available ? `ל${x.c.name} נשארו מילים מאושרות ל-${x.p.days || 'פחות מיום'} ימים` : `ל${x.c.name} אין מילים מאושרות חדשות`).join(' · '));
+  if (low.length) parts.push(low.map(x => x.p.available ? `ל${x.c.name} נשארו מילים מאושרות ${x.p.lessons === 1 ? 'לשיעור אחד' : `ל-${x.p.lessons} שיעורים`}` : `ל${x.c.name} אין מילים מאושרות חדשות`).join(' · '));
   if (drafts) parts.push(`${drafts} מילים ממתינות לאישור`);
   return parts.length ? parts.join('. ') + '.' : '';
 }
