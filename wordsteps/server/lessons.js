@@ -245,6 +245,9 @@ async function suggestReplacement(store, lesson, child) {
 
 function approveLesson(store, lesson, child) {
   lessonEditable(lesson);
+  if (!lesson.items.some(i => i.role === 'new') && child.newPerDay > 0) {
+    throw new HttpError(400, 'בשיעור אין מילים חדשות — הוסיפו מילים או לחצו "הכנה מחדש"');
+  }
   const problems = [];
   for (const it of lesson.items) {
     const miss = missingFields(it.content, child.exerciseTypes);

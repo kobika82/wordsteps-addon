@@ -40,18 +40,50 @@ async function listModels() {
   return (j.models || []).filter(m => (m.supportedGenerationMethods || []).includes('generateContent')).map(m => m.name.replace(/^models\//, ''));
 }
 
+// מודלים חלופיים מאותו סוג, מהעדכני לישן (למקרה של עומס זמני על המודל הראשי)
+function alternatives(names, kind, exclude) {
+  const re = kind === 'image' ? /^gemini-(\d+(?:\.\d+)?)-flash-image(?:-preview)?$/ : /^gemini-(\d+(?:\.\d+)?)-flash(?:-lite)?$/;
+  return names.map(n => ({ n, m: re.exec(n) })).filter(x => x.m && x.n !== exclude)
+    .sort((a, b) => cmpVersion(b.m[1], a.m[1]) || a.n.length - b.n.length).map(x => x.n).slice(0, 2);
+}
+
+const TRANSIENT = [429, 500, 503, 504];
+let sleep = ms => new Promise(r => setTimeout(r, ms));
+function setSleep(fn) { sleep = fn; }
+
 async function call(kind, body, timeoutMs = 90000) {
-  try {
-    return await callModel(modelFor(kind), body, timeoutMs);
-  } catch (e) {
-    if (e.status !== 404) throw e;
-    // המודל הוצא משימוש או לא קיים — מחפשים מחליף ומנסים שוב פעם אחת
-    const replacement = pickLatest(await listModels().catch(() => []), kind);
-    if (!replacement || replacement === modelFor(kind)) throw e;
-    console.warn(`Gemini model ${modelFor(kind)} unavailable, switching to ${replacement}`);
+  const model = modelFor(kind);
+  let lastErr;
+  // עומס זמני: עד 3 ניסיונות על המודל הראשי, במרווחים הולכים וגדלים
+  for (const wait of [0, 3000, 8000]) {
+    if (wait) await sleep(wait);
+    try {
+      return await callModel(model, body, timeoutMs);
+    } catch (e) {
+      lastErr = e;
+      if (!TRANSIENT.includes(e.status)) break;
+    }
+  }
+  const names = await listModels().catch(() => []);
+  if (lastErr.status === 404) {
+    // המודל הוצא משימוש — עוברים לעדכני ביותר, לצמיתות
+    const replacement = pickLatest(names, kind);
+    if (!replacement || replacement === model) throw lastErr;
+    console.warn(`Gemini model ${model} unavailable, switching to ${replacement}`);
     active[kind] = replacement;
     return callModel(replacement, body, timeoutMs);
   }
+  if (!TRANSIENT.includes(lastErr.status)) throw lastErr;
+  // המודל הראשי עמוס — ניסיון חד-פעמי במודלים חלופיים, בלי לשנות את ברירת המחדל
+  for (const alt of alternatives(names, kind, model)) {
+    try {
+      console.warn(`Gemini model ${model} busy, trying ${alt}`);
+      return await callModel(alt, body, timeoutMs);
+    } catch (e) {
+      if (!TRANSIENT.includes(e.status) && e.status !== 404) throw e;
+    }
+  }
+  throw new HttpError(503, 'Gemini עמוס כרגע (גם במודלים החלופיים). אפשר לנסות שוב בעוד כמה דקות.');
 }
 
 async function callModel(model, body, timeoutMs) {
@@ -194,4 +226,4 @@ async function test() {
   return (json?.candidates?.[0]?.content?.parts?.[0]?.text || '').trim();
 }
 
-module.exports = { configure, isConfigured, info, pickLatest, suggestWords, completeWord, generateImage, test, fixWord };
+module.exports = { configure, isConfigured, info, pickLatest, setSleep, suggestWords, completeWord, generateImage, test, fixWord };

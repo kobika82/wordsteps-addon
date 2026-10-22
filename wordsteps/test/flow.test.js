@@ -216,6 +216,13 @@ test('אין מספיק מילים חדשות: אין כפילויות, והמנ
   assert.ok(d2.warnings.some(w => w.includes('אין מספיק מילים')));
   const dash = await ok(admin('GET', 'dashboard'));
   assert.ok(dash.notices.some(n => n.text.includes('אין מספיק מילים')));
+  if (!d2.items.length) {
+    // שיעור ריק לא ניתן לאישור; אחרי הוספת מילה למאגר — "הכנה מחדש" ממלאת אותו
+    assert.equal((await admin('POST', `lessons/${d2.id}/approve`)).status, 400);
+    await ok(admin('POST', 'words', { en: 'bird', he: 'ציפור', level: 'beginner', exampleEn: 'A bird can fly.', exampleHe: 'ציפור יכולה לעוף.', clozeEn: 'The ___ sings in the tree.', clozeHe: 'הציפור שרה על העץ.', distractorsHe: ['דג', 'חתול', 'נחש'], distractorsEn: ['table', 'shoe', 'road'] }));
+    const again = await ok(admin('POST', `lessons/${d2.id}/regenerate`));
+    assert.equal(again.items.length, 1);
+  }
 });
 
 test('התראות: נשלחות בשעה שנקבעה, פעם אחת, תזכורת עד להשלמה', async () => {

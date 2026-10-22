@@ -82,3 +82,28 @@ test('Gemini: מודל שהוצא משימוש מוחלף אוטומטית בע�
     assert.ok(calls.at(-1).includes('gemini-3.8-flash:generateContent'));
   } finally { global.fetch = realFetch; }
 });
+
+test('Gemini: עומס זמני (503) — ניסיונות חוזרים ואז מודל חלופי', async () => {
+  const gemini = require('../server/gemini');
+  gemini.setSleep(async () => {});
+  const realFetch = global.fetch;
+  const calls = [];
+  const names = ['gemini-3.8-flash', 'gemini-3.5-flash', 'gemini-3.8-flash-lite'];
+  global.fetch = async (url) => {
+    calls.push(url);
+    if (url.includes('?pageSize')) return new Response(JSON.stringify({ models: names.map(n => ({ name: 'models/' + n, supportedGenerationMethods: ['generateContent'] })) }));
+    if (url.includes('gemini-3.8-flash:')) return new Response(JSON.stringify({ error: { message: 'high demand' } }), { status: 503 });
+    return new Response(JSON.stringify({ candidates: [{ content: { parts: [{ text: 'ok' }] } }] }));
+  };
+  try {
+    gemini.configure({ apiKey: 'k', model: 'gemini-3.8-flash' });
+    assert.equal(await gemini.test(), 'ok');
+    assert.equal(calls.filter(u => u.includes('gemini-3.8-flash:')).length, 3, 'שלושה ניסיונות על המודל הראשי');
+    assert.ok(calls.at(-1).includes('gemini-3.8-flash-lite:') || calls.at(-1).includes('gemini-3.5-flash:'));
+    assert.equal(gemini.info().model, 'gemini-3.8-flash', 'עומס זמני לא משנה את ברירת המחדל');
+    global.fetch = async (url) => url.includes('?pageSize')
+      ? new Response(JSON.stringify({ models: [] }))
+      : new Response(JSON.stringify({ error: { message: 'busy' } }), { status: 503 });
+    await assert.rejects(gemini.test(), /עמוס/);
+  } finally { global.fetch = realFetch; }
+});
