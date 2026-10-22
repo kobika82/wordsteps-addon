@@ -6,7 +6,7 @@
 //              https://meyda.education.gov.il/files/Mazkirut_Pedagogit/English/CurriculumFilesAugust21/LexicalBand2.xlsx
 //   flyers.txt ← טקסט שחולץ (pdfjs) מ-https://www.cambridgeenglish.org/pl/Images/149681-yle-flyers-word-list.pdf
 // שימוש: node tools/build-wordlists.js <תיקייה>
-// שימו לב: רשימות משרד החינוך מוגנות בזכויות יוצרים — הריפו חייב להישאר פרטי.
+// שימו לב: רשימות משרד החינוך מוגנות בזכויות יוצרים; הן נכללות בריפו באחריות בעליו.
 const fs = require('fs');
 const { readXlsx } = require('./xlsx-read');
 const path = require('path');
