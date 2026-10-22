@@ -374,20 +374,48 @@
   }
 
   // ---------------- אישור מילים ----------------
+  const AI_TABS = [['', 'כל הממתינות'], ['ok', '✅ Gemini אישר'], ['fixed', '✏️ Gemini תיקן'], ['reject', '⛔ Gemini פסל'], ['none', '⏳ טרם נבדקו']];
   async function approveWords() {
     const fl = h('select', h('option', { value: '' }, 'כל הרמות'), Object.entries(M.levels).map(([k, t]) => h('option', { value: k }, t)));
     const list = h('div');
+    const tabs = h('div.row', { style: { marginBottom: '10px' } });
+    const aiBar = h('div');
     const bulk = h('button.btn.ok', '✔ אישור כל המילים שבעמוד');
+    const bulkDel = h('button.btn.danger', '🗑 מחיקת המילים שבעמוד');
     const PAGE = 15;
     let cards = [];
+    let tab = new URLSearchParams(location.hash.split('?')[1] || '').get('ai') || '';
+    async function drawStatus() {
+      const s = await WS.get('ai-review');
+      const labels = { '': s.counts.ok + s.counts.fixed + s.counts.reject + s.counts.unchecked, ok: s.counts.ok, fixed: s.counts.fixed, reject: s.counts.reject, none: s.counts.unchecked };
+      tabs.innerHTML = '';
+      for (const [k, t] of AI_TABS) tabs.appendChild(h('button.btn.sm' + (tab === k ? '.primary' : ''), { onclick: () => { tab = k; drawStatus(); load(); } }, `${t} (${labels[k]})`));
+      aiBar.innerHTML = '';
+      aiBar.appendChild(!s.configured ? h('div.alert.warn', '⚠️', h('div', 'Gemini לא מוגדר — הבדיקה האוטומטית לא פועלת.'))
+        : h('div.alert.info', '🤖', h('div.grow',
+          s.config.enabled
+            ? `בדיקה אוטומטית ב-Gemini: ${s.state.count}/${s.config.perDay} היום, מילה כל ${s.config.intervalMin} דקות.` +
+              (s.nextRunAt ? ` הבאה: ${new Date(s.nextRunAt).toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit' })}.` : s.counts.unchecked ? ' המכסה היומית הושלמה.' : ' אין מילים לבדיקה.')
+            : 'הבדיקה האוטומטית כבויה (אפשר להפעיל בהגדרות).',
+          s.state.lastError ? h('div.small', { style: { color: 'var(--bad)' } }, 'שגיאה אחרונה: ' + s.state.lastError) : null),
+          s.counts.unchecked ? h('button.btn.sm', { onclick: (e) => WS.busy(e.currentTarget, async () => {
+            const r = await WS.post('ai-review/run');
+            r.error ? WS.toast(r.error, true) : WS.toast(`Gemini בדק את "${r.word}"`);
+            await drawStatus(); await load();
+          }) }, 'בדיקת מילה עכשיו') : null));
+    }
     async function load() {
-      const rows = (await WS.get('words?' + new URLSearchParams({ status: 'draft', level: fl.value }))).sort((a, b) => a.id - b.id);
+      const params = { status: 'draft', level: fl.value };
+      if (tab) params.ai = tab;
+      const rows = (await WS.get('words?' + new URLSearchParams(params))).sort((a, b) => a.id - b.id);
       list.innerHTML = '';
-      cards = rows.slice(0, PAGE).map(w => wordCard(w, load));
-      list.append(h('p.small.muted', rows.length ? `${rows.length} מילים ממתינות` + (rows.length > PAGE ? ` — מוצגות ${PAGE} הראשונות` : '') : ''),
+      cards = rows.slice(0, PAGE).map(w => wordCard(w, async () => { await drawStatus(); await load(); }));
+      list.append(h('p.small.muted', rows.length ? `${rows.length} מילים` + (rows.length > PAGE ? ` — מוצגות ${PAGE} הראשונות` : '') : ''),
         ...cards.map(c => c.el));
-      if (!rows.length) list.appendChild(h('div.card.center', h('p', '🎉 אין מילים שממתינות לאישור.'), h('a.btn', { href: '#/words' }, '📚 הוספת מילים למאגר')));
+      if (!rows.length) list.appendChild(h('div.card.center', h('p', tab ? 'אין מילים בלשונית הזו.' : '🎉 אין מילים שממתינות לאישור.'), tab ? null : h('a.btn', { href: '#/words' }, '📚 הוספת מילים למאגר')));
       bulk.disabled = !rows.length;
+      bulk.classList.toggle('hidden', tab === 'reject');
+      bulkDel.classList.toggle('hidden', tab !== 'reject' || !rows.length);
     }
     bulk.onclick = () => WS.busy(bulk, async () => {
       for (const c of cards) if (c.dirty()) await c.save();
@@ -395,14 +423,34 @@
       const bad = r.results.filter(x => !x.ok);
       WS.toast(`אושרו ${r.results.length - bad.length} מילים`);
       if (bad.length) WS.toast(bad.map(b => b.error).join(' | '), true);
-      await load();
+      await drawStatus(); await load();
+    });
+    bulkDel.onclick = () => WS.busy(bulkDel, async () => {
+      if (!confirm(`למחוק ${cards.length} מילים שנפסלו מהמאגר?`)) return;
+      for (const c of cards) await WS.del('words/' + c.id);
+      WS.toast(`נמחקו ${cards.length} מילים`);
+      await drawStatus(); await load();
     });
     fl.onchange = load;
     page('אישור מילים',
-      h('p.muted', 'ילד רואה רק מילים שאושרו. בדקו איור, תרגום ומשפטים — ערכו אם צריך — ואשרו. השיעורים נבנים מהן אוטומטית.'),
-      h('div.row', { style: { marginBottom: '12px' } }, h('div', { style: { width: '170px' } }, fl), h('div.grow'), bulk),
+      h('p.muted', 'ילד רואה רק מילים שאישרתם. Gemini עובר על המילים הממתינות לבד ומציע: לאשר, לתקן או לפסול — וההחלטה הסופית שלכם.'),
+      aiBar, tabs,
+      h('div.row', { style: { marginBottom: '12px' } }, h('div', { style: { width: '170px' } }, fl), h('div.grow'), bulkDel, bulk),
       list);
+    await drawStatus();
     await load();
+  }
+
+  // מה Gemini אמר על המילה ומה תיקן
+  const FIELD_HE = { he: 'תרגום', exampleEn: 'משפט דוגמה', exampleHe: 'תרגום המשפט', clozeEn: 'משפט השלמה', clozeHe: 'תרגום משפט ההשלמה', distractorsHe: 'תשובות שגויות (עברית)', distractorsEn: 'תשובות שגויות (אנגלית)' };
+  function aiBox(ai) {
+    if (!ai) return null;
+    const head = { ok: ['✅ Gemini אישר', 'ok'], fixed: ['✏️ Gemini תיקן', 'info'], reject: ['⛔ Gemini פסל', 'bad'] }[ai.verdict] || ['Gemini', ''];
+    const show = v => Array.isArray(v) ? v.join(', ') : v;
+    return h('div.alert.' + (ai.verdict === 'reject' ? 'bad' : 'info'), { style: { display: 'block' } },
+      h('div', h('span.badge.' + head[1], head[0]), ' ', ai.reason),
+      Object.keys(ai.changes || {}).length ? h('ul.small', { style: { margin: '6px 0 0', paddingInlineStart: '18px' } },
+        Object.entries(ai.changes).map(([k, c]) => h('li', h('b', (FIELD_HE[k] || k) + ': '), h('s.muted', show(c.from) || '—'), ' ← ', show(c.to)))) : null);
   }
 
   // כרטיס עריכה ואישור של מילה אחת
@@ -419,6 +467,7 @@
         h('div.row', { style: { marginBottom: '8px' } },
           h('h2.grow', en(w.en), ' — ', w.he || '?', ' ', WS.speakBtn(w.en, '.btn.sm')),
           h('span.badge', M.levels[w.level] || w.level), w.topic ? h('span.badge.info', M.topics[w.topic] || w.topic) : null),
+        aiBox(w.ai),
         contentFields(w, onChange),
         exercisePreview(w, ['mc', 'cloze', 'type']),
         h('div.row', { style: { marginTop: '10px' } },
@@ -671,6 +720,9 @@
       adminNotifyService: h('select', h('option', { value: '' }, '— ללא —'), [...new Set([...servR.services, s.adminNotifyService].filter(Boolean))].map(x => h('option', { value: x, selected: s.adminNotifyService === x }, x.replace('mobile_app_', '')))),
       prepTime: h('input', { type: 'time', value: s.prepTime }),
       startDate: h('input', { type: 'date', value: s.startDate || '' }),
+      aiEnabled: h('input', { type: 'checkbox', checked: (s.aiReview || {}).enabled !== false }),
+      aiPerDay: h('input', { type: 'number', min: 1, max: 100, value: (s.aiReview || {}).perDay || 10 }),
+      aiInterval: h('input', { type: 'number', min: 5, max: 1440, value: (s.aiReview || {}).intervalMin || 60 }),
       imageSource: h('select', [['arasaac', 'איור מ-ARASAAC, ואם אין — תמונה מ-Openverse (חינם)'], ['openverse', 'חיפוש תמונה ב-Openverse (חינם)'], ['gemini', 'איור ב-Gemini (בתשלום לפי שימוש)'], ['none', 'ללא — אבחר ידנית']].map(([k, t]) => h('option', { value: k, selected: s.imageSource === k }, t))),
       notifyReviewDays: h('input', { type: 'checkbox', checked: s.notifyReviewDays })
     };
@@ -694,12 +746,17 @@
         h('div.grid3', field('שעת ההודעה', I.prepTime), field('המכשיר שלך להודעות', I.adminNotifyService)),
         h('div.row', { style: { marginTop: '10px' } },
           h('button.btn.sm', { onclick: (e) => WS.busy(e.currentTarget, async () => { const r = await WS.post('settings/test-admin-notify', { service: I.adminNotifyService.value }); r.ok ? WS.toast('נשלחה ✓') : WS.toast('נכשלה: ' + r.error, true); }) }, '📨 התראת בדיקה למנהל'))),
+      h('div.card', h('h2', '🤖 בדיקת מילים אוטומטית ב-Gemini'),
+        h('label.checks', I.aiEnabled, ' לשלוח ל-Gemini מילים ממתינות לבדיקה (אישור / תיקון / פסילה)'),
+        h('div.grid3', { style: { marginTop: '10px' } }, field('מילים ביום', I.aiPerDay), field('דקות בין מילה למילה', I.aiInterval)),
+        h('p.small.muted', 'Gemini רק ממליץ: המילים נשארות ממתינות עד שתאשרו אותן במסך "אישור מילים". מרווח בין בקשות מונע עומס ושגיאות.')),
       h('div.card', h('h2', 'תוכן ותמונות'), field('הצעת תמונה למילים חדשות', I.imageSource),
         h('label.checks', { style: { marginTop: '10px' } }, I.notifyReviewDays, ' לשלוח לילד התראה גם ביום בלי שיעור מאושר (חזרה בלבד)')),
       h('div.card', h('h2', 'מנהלים'), h('p.small.muted', 'מנהלי Home Assistant הם תמיד מנהלים כאן. אפשר להוסיף משתמשים נוספים:'), adminChecks),
       h('div.row', h('button.btn.primary', { onclick: (e) => WS.busy(e.currentTarget, async () => {
         await WS.put('settings', {
           adminNotifyService: I.adminNotifyService.value, prepTime: I.prepTime.value, startDate: I.startDate.value,
+          aiReview: { enabled: I.aiEnabled.checked, perDay: I.aiPerDay.value, intervalMin: I.aiInterval.value },
           imageSource: I.imageSource.value, notifyReviewDays: I.notifyReviewDays.checked,
           adminUserIds: [...adminChecks.querySelectorAll('input:checked:not(:disabled)')].map(x => x.value)
         });

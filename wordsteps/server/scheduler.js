@@ -4,6 +4,7 @@
 const { localParts, toMinutes, now } = require('./util');
 const ha = require('./ha');
 const L = require('./lessons');
+const aireview = require('./aireview');
 
 const NOTIFY_WINDOW_MIN = 240;   // לא שולחים התראה יומית יותר מ-4 שעות אחרי השעה שנקבעה
 const RETRY_MIN = 10;
@@ -112,6 +113,7 @@ async function tick(store) {
   try {
     const p = localParts();
     await prepTick(store, p);
+    try { await aireview.tick(store); } catch (e) { console.error('ai review', e.message); }
     for (const child of store.data.children) {
       try { await childTick(store, child, p); } catch (e) { console.error('notify tick', child.id, e.message); }
     }

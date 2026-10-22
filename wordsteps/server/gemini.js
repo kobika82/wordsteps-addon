@@ -207,6 +207,57 @@ ${RULES}`;
   return { ...list[0], en: list[0].en || en };
 }
 
+// בדיקת מילה קיימת: Gemini מאשר, מתקן, או פוסל. ההחלטה הסופית נשארת אצל המנהל.
+const REVIEW_FIELDS = ['he', 'exampleEn', 'exampleHe', 'clozeEn', 'clozeHe', 'distractorsHe', 'distractorsEn'];
+async function reviewWord(w, { age } = {}) {
+  const current = Object.fromEntries(['en', ...REVIEW_FIELDS].map(k => [k, w[k] || (k.startsWith('distractors') ? [] : '')]));
+  const prompt = `You are checking a vocabulary card for a Hebrew-speaking child (age ${age || 'about 9'}, English level ${w.level} — ${LEVEL_HE[w.level] || ''}).
+Current card (JSON):
+${JSON.stringify(current, null, 1)}
+
+Check every field:
+- "he" is an accurate, common Hebrew translation of "en" (no niqqud; verbs in the infinitive).
+- "exampleEn" is a short, natural, child-appropriate sentence that shows the meaning; "exampleHe" translates it accurately.
+- "clozeEn" contains "___" where exactly the word "en" fits and no distractor fits; "clozeHe" translates the full sentence.
+- "distractorsHe": exactly 3 clearly wrong Hebrew options from a related category (never synonyms of "he").
+- "distractorsEn": exactly 3 English words of the same part of speech that do NOT fit the cloze sentence.
+- The word itself must be suitable for children (no violence, adult content, brands, religion, politics) and not a proper noun.
+
+Return:
+- "verdict": "ok" if everything is correct and child-appropriate as is; "fixed" if you corrected anything; "reject" if the word itself is unsuitable for this child.
+- "reason": one short sentence in Hebrew explaining the verdict (what was wrong / what you fixed).
+- "card": the full card after your corrections (unchanged fields as they were). Keep "en" unchanged.
+${RULES}`;
+  const json = await call('text', {
+    contents: [{ role: 'user', parts: [{ text: prompt }] }],
+    generationConfig: {
+      temperature: 0.2, responseMimeType: 'application/json',
+      responseSchema: {
+        type: 'OBJECT',
+        properties: { verdict: { type: 'STRING', enum: ['ok', 'fixed', 'reject'] }, reason: STR, card: WORD_SCHEMA },
+        required: ['verdict', 'reason', 'card']
+      }
+    }
+  });
+  const text = json?.candidates?.[0]?.content?.parts?.map(p => p.text || '').join('') || '';
+  let data;
+  try { data = JSON.parse(text); } catch (e) { throw new HttpError(502, 'תשובת Gemini אינה JSON תקין'); }
+  if (!['ok', 'fixed', 'reject'].includes(data.verdict)) throw new HttpError(502, 'Gemini לא החזיר הכרעה');
+  const card = fixWord({ ...data.card, en: w.en });
+  // שינויים בפועל, שדה-שדה (Gemini לפעמים אומר "fixed" בלי לשנות כלום, או להפך)
+  const changes = {};
+  for (const k of REVIEW_FIELDS) {
+    const before = w[k] || (k.startsWith('distractors') ? [] : '');
+    const after = card[k];
+    if (after == null || (Array.isArray(after) && after.length < 3) || after === '') continue;
+    if (JSON.stringify(before) !== JSON.stringify(after)) changes[k] = { from: before, to: after };
+  }
+  let verdict = data.verdict;
+  if (verdict === 'fixed' && !Object.keys(changes).length) verdict = 'ok';
+  if (verdict === 'ok' && Object.keys(changes).length) verdict = 'fixed';
+  return { verdict, reason: String(data.reason || '').trim().slice(0, 300), changes, model: modelFor('text') };
+}
+
 // איור ידידותי לילדים. מחזיר base64 — הלקוח מקטין ושומר
 async function generateImage({ en, he }) {
   const prompt = `A simple, friendly, colorful illustration for a children's vocabulary card showing the meaning of the English word "${en}"${he ? ` (Hebrew: ${he})` : ''}. One clear subject on a plain light background, no text, no letters, no words in the image.`;
@@ -226,4 +277,4 @@ async function test() {
   return (json?.candidates?.[0]?.content?.parts?.[0]?.text || '').trim();
 }
 
-module.exports = { configure, isConfigured, info, pickLatest, setSleep, suggestWords, completeWord, generateImage, test, fixWord };
+module.exports = { configure, isConfigured, info, pickLatest, setSleep, suggestWords, completeWord, reviewWord, generateImage, test, fixWord };

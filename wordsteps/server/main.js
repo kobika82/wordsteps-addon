@@ -12,6 +12,7 @@ const gemini = require('./gemini');
 const images = require('./images');
 const L = require('./lessons');
 const sources = require('./sources');
+const aireview = require('./aireview');
 const R = require('./reports');
 const scheduler = require('./scheduler');
 const { HttpError } = U;
@@ -291,10 +292,11 @@ route('GET', '/api/notifications', 'admin', async ({ query }) => {
 // ---- מנהל: מאגר מילים ----
 route('GET', '/api/words', 'admin', async ({ query }) => {
   const q = (query.get('q') || '').trim().toLowerCase();
-  const level = query.get('level'), topic = query.get('topic'), status = query.get('status');
+  const level = query.get('level'), topic = query.get('topic'), status = query.get('status'), ai = query.get('ai');
   return store.data.words.filter(w =>
     (!q || w.en.toLowerCase().includes(q) || w.he.includes(q)) &&
-    (!level || w.level === level) && (!topic || w.topic === topic) && (!status || w.status === status)
+    (!level || w.level === level) && (!topic || w.topic === topic) && (!status || w.status === status) &&
+    (!ai || (ai === 'none' ? !w.ai : w.ai && w.ai.verdict === ai))
   ).sort((a, b) => b.id - a.id).map(wordRow);
 });
 route('POST', '/api/words', 'admin', async ({ body }) => {
@@ -319,6 +321,10 @@ route('POST', '/api/words', 'admin', async ({ body }) => {
   store.save();
   return w;
 });
+
+// ---- בדיקת מילים אוטומטית ב-Gemini ----
+route('GET', '/api/ai-review', 'admin', async () => aireview.status(store));
+route('POST', '/api/ai-review/run', 'admin', async () => (await aireview.tick(store, { force: true })) || { error: 'אין מילים שממתינות לבדיקה, או ש-Gemini לא מוגדר' });
 
 // ---- ייבוא מרשימות מילים רשמיות (בלי AI) ----
 route('GET', '/api/wordlists', 'admin', async () => {
@@ -471,6 +477,10 @@ route('PUT', '/api/settings', 'admin', async ({ body }) => {
   if ('daysAhead' in body) s.daysAhead = int(body.daysAhead, 1, 14, 1);
   if ('imageSource' in body && ['arasaac', 'openverse', 'gemini', 'none'].includes(body.imageSource)) s.imageSource = body.imageSource;
   if ('notifyReviewDays' in body) s.notifyReviewDays = !!body.notifyReviewDays;
+  if (body.aiReview && typeof body.aiReview === 'object') {
+    const a = body.aiReview;
+    s.aiReview = { enabled: !!a.enabled, perDay: int(a.perDay, 1, 100, 10), intervalMin: int(a.intervalMin, 5, 1440, 60) };
+  }
   if ('startDate' in body) s.startDate = /^\d{4}-\d{2}-\d{2}$/.test(body.startDate || '') ? body.startDate : '';
   if ('adminUserIds' in body && Array.isArray(body.adminUserIds)) s.adminUserIds = body.adminUserIds.map(String);
   store.save();
