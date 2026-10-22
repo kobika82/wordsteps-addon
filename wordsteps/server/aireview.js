@@ -1,13 +1,15 @@
 'use strict';
 // בדיקה אוטומטית של מילים ממתינות ב-Gemini: מילה אחת בכל פעם, במרווח קבוע, עד מכסה יומית.
 // Gemini מאשר / מתקן / פוסל — המילה נשארת טיוטה, והמנהל רואה את ההכרעה ומאשר סופית.
-const { now, today } = require('./util');
+const { now, today, shuffle } = require('./util');
 const { LEVELS } = require('./content');
 const gemini = require('./gemini');
 
-const DEFAULTS = { enabled: true, perDay: 10, intervalMin: 60 };
+// intervalMin — אחרי בדיקה שהצליחה; retryMin — אחרי כשל (למשל Gemini עמוס)
+const DEFAULTS = { enabled: true, perDay: 10, intervalMin: 60, retryMin: 10 };
 
 function config(store) { return { ...DEFAULTS, ...(store.data.settings.aiReview || {}) }; }
+function waitMin(c, s) { return s.lastError ? c.retryMin : c.intervalMin; }
 
 function state(store) {
   const s = store.data.aiReviewState || (store.data.aiReviewState = { date: null, count: 0, lastRunAt: null, lastError: '', lastWord: '' });
@@ -15,12 +17,13 @@ function state(store) {
   return s;
 }
 
-// הבאה בתור: טיוטה שעוד לא נבדקה. קודם רמות שהילדים צריכים (הרמה שלהם והקודמות), ואז הוותיקה ביותר
+// הבאה בתור: טיוטה שעוד לא נבדקה, בסדר אקראי (לא לפי סדר הרשימה/הא"ב).
+// קודם מילים ברמות שהילדים צריכים (הרמה שלהם והקודמות), ואחריהן השאר — גם הן בסדר אקראי
 function queue(store) {
   const needed = new Set();
   for (const c of store.data.children) if (c.active) for (const l of LEVELS.slice(0, LEVELS.indexOf(c.level) + 1)) needed.add(l);
-  return store.data.words.filter(w => w.status === 'draft' && !w.ai)
-    .sort((a, b) => (needed.has(b.level) ? 1 : 0) - (needed.has(a.level) ? 1 : 0) || a.id - b.id);
+  const pending = store.data.words.filter(w => w.status === 'draft' && !w.ai);
+  return shuffle(pending.filter(w => needed.has(w.level))).concat(shuffle(pending.filter(w => !needed.has(w.level))));
 }
 
 async function reviewOne(store, w) {
@@ -37,7 +40,7 @@ function nextRunAt(store) {
   const c = config(store), s = state(store);
   if (!c.enabled || !gemini.isConfigured() || s.count >= c.perDay || !queue(store).length) return null;
   if (!s.lastRunAt) return now().toISOString();
-  return new Date(Math.max(now().getTime(), Date.parse(s.lastRunAt) + c.intervalMin * 60000)).toISOString();
+  return new Date(Math.max(now().getTime(), Date.parse(s.lastRunAt) + waitMin(c, s) * 60000)).toISOString();
 }
 
 let running = false;
@@ -46,7 +49,7 @@ async function tick(store, { force = false } = {}) {
   if (running || !gemini.isConfigured()) return null;
   if (!force) {
     if (!c.enabled || s.count >= c.perDay) return null;
-    if (s.lastRunAt && now().getTime() - Date.parse(s.lastRunAt) < c.intervalMin * 60000) return null;
+    if (s.lastRunAt && now().getTime() - Date.parse(s.lastRunAt) < waitMin(c, s) * 60000) return null;
   }
   const w = queue(store)[0];
   if (!w) return null;
@@ -59,7 +62,7 @@ async function tick(store, { force = false } = {}) {
     s.lastError = '';
     return { word: w.en, ...ai };
   } catch (e) {
-    // כשל (למשל עומס) לא נספר במכסה; ננסה שוב אחרי המרווח
+    // כשל (למשל עומס) לא נספר במכסה; ניסיון חוזר — עם מילה אקראית אחרת — אחרי retryMin דקות
     s.lastError = `${w.en}: ${e.message}`;
     return { word: w.en, error: e.message };
   } finally {

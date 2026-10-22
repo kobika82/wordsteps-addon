@@ -394,7 +394,7 @@
       aiBar.appendChild(!s.configured ? h('div.alert.warn', '⚠️', h('div', 'Gemini לא מוגדר — הבדיקה האוטומטית לא פועלת.'))
         : h('div.alert.info', '🤖', h('div.grow',
           s.config.enabled
-            ? `בדיקה אוטומטית ב-Gemini: ${s.state.count}/${s.config.perDay} היום, מילה כל ${s.config.intervalMin} דקות.` +
+            ? `בדיקה אוטומטית ב-Gemini: ${s.state.count}/${s.config.perDay} היום, מילה כל ${s.config.intervalMin} דקות (ניסיון חוזר אחרי ${s.config.retryMin} דקות אם Gemini עמוס).` +
               (s.nextRunAt ? ` הבאה: ${new Date(s.nextRunAt).toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit' })}.` : s.counts.unchecked ? ' המכסה היומית הושלמה.' : ' אין מילים לבדיקה.')
             : 'הבדיקה האוטומטית כבויה (אפשר להפעיל בהגדרות).',
           s.state.lastError ? h('div.small', { style: { color: 'var(--bad)' } }, 'שגיאה אחרונה: ' + s.state.lastError) : null),
@@ -723,6 +723,7 @@
       aiEnabled: h('input', { type: 'checkbox', checked: (s.aiReview || {}).enabled !== false }),
       aiPerDay: h('input', { type: 'number', min: 1, max: 100, value: (s.aiReview || {}).perDay || 10 }),
       aiInterval: h('input', { type: 'number', min: 5, max: 1440, value: (s.aiReview || {}).intervalMin || 60 }),
+      aiRetry: h('input', { type: 'number', min: 1, max: 1440, value: (s.aiReview || {}).retryMin || 10 }),
       imageSource: h('select', [['arasaac', 'איור מ-ARASAAC, ואם אין — תמונה מ-Openverse (חינם)'], ['openverse', 'חיפוש תמונה ב-Openverse (חינם)'], ['gemini', 'איור ב-Gemini (בתשלום לפי שימוש)'], ['none', 'ללא — אבחר ידנית']].map(([k, t]) => h('option', { value: k, selected: s.imageSource === k }, t))),
       notifyReviewDays: h('input', { type: 'checkbox', checked: s.notifyReviewDays })
     };
@@ -748,7 +749,7 @@
           h('button.btn.sm', { onclick: (e) => WS.busy(e.currentTarget, async () => { const r = await WS.post('settings/test-admin-notify', { service: I.adminNotifyService.value }); r.ok ? WS.toast('נשלחה ✓') : WS.toast('נכשלה: ' + r.error, true); }) }, '📨 התראת בדיקה למנהל'))),
       h('div.card', h('h2', '🤖 בדיקת מילים אוטומטית ב-Gemini'),
         h('label.checks', I.aiEnabled, ' לשלוח ל-Gemini מילים ממתינות לבדיקה (אישור / תיקון / פסילה)'),
-        h('div.grid3', { style: { marginTop: '10px' } }, field('מילים ביום', I.aiPerDay), field('דקות בין מילה למילה', I.aiInterval)),
+        h('div.grid3', { style: { marginTop: '10px' } }, field('מילים ביום', I.aiPerDay), field('דקות עד המילה הבאה (אחרי הצלחה)', I.aiInterval), field('דקות עד ניסיון חוזר (אם Gemini עמוס)', I.aiRetry)),
         h('p.small.muted', 'Gemini רק ממליץ: המילים נשארות ממתינות עד שתאשרו אותן במסך "אישור מילים". מרווח בין בקשות מונע עומס ושגיאות.')),
       h('div.card', h('h2', 'תוכן ותמונות'), field('הצעת תמונה למילים חדשות', I.imageSource),
         h('label.checks', { style: { marginTop: '10px' } }, I.notifyReviewDays, ' לשלוח לילד התראה גם ביום בלי שיעור מאושר (חזרה בלבד)')),
@@ -756,7 +757,7 @@
       h('div.row', h('button.btn.primary', { onclick: (e) => WS.busy(e.currentTarget, async () => {
         await WS.put('settings', {
           adminNotifyService: I.adminNotifyService.value, prepTime: I.prepTime.value, startDate: I.startDate.value,
-          aiReview: { enabled: I.aiEnabled.checked, perDay: I.aiPerDay.value, intervalMin: I.aiInterval.value },
+          aiReview: { enabled: I.aiEnabled.checked, perDay: I.aiPerDay.value, intervalMin: I.aiInterval.value, retryMin: I.aiRetry.value },
           imageSource: I.imageSource.value, notifyReviewDays: I.notifyReviewDays.checked,
           adminUserIds: [...adminChecks.querySelectorAll('input:checked:not(:disabled)')].map(x => x.value)
         });

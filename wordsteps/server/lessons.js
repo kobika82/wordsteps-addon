@@ -117,9 +117,10 @@ function allowedLevels(child) { return LEVELS.slice(0, LEVELS.indexOf(child.leve
 function candidateWords(store, child, exclude = new Set()) {
   const topics = child.topics || [];
   const allowed = new Set(allowedLevels(child));
-  return store.data.words
-    .filter(w => w.status === 'approved' && allowed.has(w.level) && !exclude.has(w.id) && (!topics.length || topics.includes(w.topic)))
-    .sort((a, b) => LEVELS.indexOf(b.level) - LEVELS.indexOf(a.level) || a.difficulty - b.difficulty || a.id - b.id);
+  // בתוך אותה רמה ואותו קושי — סדר אקראי, כדי שהשיעור לא ילך לפי סדר הרשימה (about, above, across...)
+  return shuffle(store.data.words
+    .filter(w => w.status === 'approved' && allowed.has(w.level) && !exclude.has(w.id) && (!topics.length || topics.includes(w.topic))))
+    .sort((a, b) => LEVELS.indexOf(b.level) - LEVELS.indexOf(a.level) || a.difficulty - b.difficulty);
 }
 
 // כמה מילים מאושרות שהילד עוד לא למד נשארו — ולכמה ימי לימוד הן מספיקות

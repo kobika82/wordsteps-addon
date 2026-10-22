@@ -479,7 +479,7 @@ route('PUT', '/api/settings', 'admin', async ({ body }) => {
   if ('notifyReviewDays' in body) s.notifyReviewDays = !!body.notifyReviewDays;
   if (body.aiReview && typeof body.aiReview === 'object') {
     const a = body.aiReview;
-    s.aiReview = { enabled: !!a.enabled, perDay: int(a.perDay, 1, 100, 10), intervalMin: int(a.intervalMin, 5, 1440, 60) };
+    s.aiReview = { enabled: !!a.enabled, perDay: int(a.perDay, 1, 100, 10), intervalMin: int(a.intervalMin, 5, 1440, 60), retryMin: int(a.retryMin, 1, 1440, 10) };
   }
   if ('startDate' in body) s.startDate = /^\d{4}-\d{2}-\d{2}$/.test(body.startDate || '') ? body.startDate : '';
   if ('adminUserIds' in body && Array.isArray(body.adminUserIds)) s.adminUserIds = body.adminUserIds.map(String);

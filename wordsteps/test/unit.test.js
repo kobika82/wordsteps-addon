@@ -108,41 +108,48 @@ test('Gemini: עומס זמני (503) — ניסיונות חוזרים ואז �
   } finally { global.fetch = realFetch; }
 });
 
-test('בדיקת Gemini אוטומטית: מילה בכל שעה, עד 10 ביום, כשל לא נספר, תיקונים נשמרים והמילה נשארת ממתינה', async () => {
+test('בדיקת Gemini אוטומטית: אקראית מהרמה, שעה אחרי הצלחה, 10 דקות אחרי עומס, עד 10 ביום', async () => {
   const gemini = require('../server/gemini');
   const aireview = require('../server/aireview');
   const util = require('../server/util');
-  const words = Array.from({ length: 14 }, (_, i) => ({ id: i + 1, en: 'w' + i, he: 'מ' + i, level: i === 13 ? 'beginner' : 'advanced', status: 'draft' }));
+  const words = Array.from({ length: 30 }, (_, i) => ({ id: i + 1, en: 'w' + i, he: 'מ' + i, level: i < 25 ? 'beginner' : 'advanced', status: 'draft' }));
   const store = { data: { settings: {}, words, children: [{ active: true, level: 'beginner', age: 8 }] }, save() {} };
   let clock = new Date('2026-10-23T05:00:00Z');
   util.setNow(() => clock);
+  const after = min => { clock = new Date(clock.getTime() + min * 60000); };
   gemini.configure({ apiKey: 'k' });
   const realReview = gemini.reviewWord;
-  let fail = false;
+  let fail = false, calls = 0;
   gemini.reviewWord = async (w) => {
+    calls++;
     if (fail) throw new Error('503 high demand');
-    return w.en === 'w0' ? { verdict: 'fixed', reason: 'תוקן התרגום', changes: { he: { from: w.he, to: 'מתוקן' } }, model: 'm' } : { verdict: 'ok', reason: 'תקין', changes: {}, model: 'm' };
+    return calls === 1 ? { verdict: 'fixed', reason: 'תוקן התרגום', changes: { he: { from: w.he, to: 'מתוקן' } }, model: 'm' } : { verdict: 'ok', reason: 'תקין', changes: {}, model: 'm' };
   };
   try {
     const first = await aireview.tick(store);
-    assert.equal(first.word, 'w13', 'קודם מילים ברמה שילד צריך');
-    assert.equal(await aireview.tick(store), null, 'לא לפני שעברה שעה');
-    clock = new Date(clock.getTime() + 60 * 60000);
-    const second = await aireview.tick(store);
-    assert.equal(second.word, 'w0');
-    assert.equal(words[0].he, 'מתוקן');
-    assert.equal(words[0].status, 'draft', 'Gemini לא מאשר סופית');
-    assert.equal(words[0].ai.verdict, 'fixed');
+    const fw = words.find(w => w.en === first.word);
+    assert.equal(fw.level, 'beginner', 'קודם מילים ברמה שילד צריך');
+    assert.equal(fw.he, 'מתוקן');
+    assert.equal(fw.status, 'draft', 'Gemini לא מאשר סופית');
+    after(30);
+    assert.equal(await aireview.tick(store), null, 'אחרי הצלחה — לא לפני שעה');
+    after(30);
     fail = true;
-    clock = new Date(clock.getTime() + 60 * 60000);
     const bad = await aireview.tick(store);
     assert.match(bad.error, /503/);
-    assert.equal(aireview.status(store).state.count, 2, 'כשל לא נספר במכסה');
+    after(9);
+    assert.equal(await aireview.tick(store), null, 'אחרי עומס — לא לפני 10 דקות');
+    after(1);
+    const retry = await aireview.tick(store);
+    assert.match(retry.error, /503/, 'ניסיון חוזר אחרי 10 דקות');
+    assert.equal(aireview.status(store).state.count, 1, 'כשלים לא נספרים במכסה');
     fail = false;
-    // עד 23:30 שעון ישראל (20:30Z) — באותו יום
-    for (let i = 0; i < 20; i++) { const next = new Date(clock.getTime() + 60 * 60000); if (next.toISOString() >= '2026-10-23T20:30') break; clock = next; await aireview.tick(store); }
+    after(10);
+    for (let i = 0; i < 30; i++) { await aireview.tick(store); const next = new Date(clock.getTime() + 60 * 60000); if (next.toISOString() >= '2026-10-23T20:30') break; clock = next; }
     assert.equal(aireview.status(store).state.count, 10, 'עד 10 ביום');
-    clock = new Date('2026-10-24T05:00:00Z');
-    assert.ok(await aireview.tick(store), 'למחרת המכסה מתחדשת');
+    const order = words.filter(w => w.ai).sort((a, b) => a.ai.at.localeCompare(b.ai.at)).map(w => w.id);
+    assert.ok(order.every(id => id <= 25), 'כל הנבדקות מהרמה שהילדים צריכים');
+    assert.ok(order.some((id, i) => i && id < order[i - 1]), 'הסדר אקראי, לא לפי הרשימה');
   } finally { gemini.reviewWord = realReview; util.setNow(null); gemini.configure({ apiKey: '' }); }
 });
+
