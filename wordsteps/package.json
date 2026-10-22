@@ -1,0 +1,12 @@
+{
+  "name": "wordsteps",
+  "version": "0.1.0",
+  "private": true,
+  "description": "WordSteps — English vocabulary for kids, Home Assistant add-on",
+  "scripts": {
+    "start": "node server/main.js",
+    "dev": "node dev.js",
+    "test": "node --test test/*.test.js"
+  },
+  "engines": { "node": ">=20" }
+}
