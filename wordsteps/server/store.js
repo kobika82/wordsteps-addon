@@ -18,7 +18,8 @@ function emptyData() {
       notifyReviewDays: true,     // לשלוח התראה גם ביום שיש בו רק שיעור חזרה
       adminUserIds: [],           // מנהלים נוספים שהוגדרו מתוך האפליקציה
       migratedArasaac: true,
-      migratedAutoLessons: true
+      migratedAutoLessons: true,
+      migratedNotices: true
     },
     users: {},          // משתמשי HA שנכנסו לאפליקציה: { id: {id,name,displayName,lastSeen} }
     children: [],
@@ -53,6 +54,11 @@ class Store {
       if (!(d.settings && d.settings.migratedAutoLessons)) {
         data.lessons = data.lessons.filter(l => !(l.kind === 'daily' && (l.status === 'pending' || l.status === 'approved')));
         data.settings.migratedAutoLessons = true;
+      }
+      // 0.2.2: ההודעות "אין מספיק מילים לשיעור <תאריך>" שייכות לשיטה הישנה של הכנה מראש — נסגרות
+      if (!(d.settings && d.settings.migratedNotices)) {
+        for (const n of data.adminNotices || []) if (/אין מספיק מילים חדשות מתאימות לשיעור/.test(n.text)) n.dismissed = true;
+        data.settings.migratedNotices = true;
       }
       return data;
     } catch (e) {

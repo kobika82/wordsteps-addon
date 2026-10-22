@@ -221,6 +221,8 @@ test('הודעה יומית למנהל נשלחת בשעה שנקבעה, רק כ
   await ok(admin('POST', 'words/approve', { ids: store.data.words.filter(w => w.status === 'draft').map(w => w.id) }));
   assert.match(scheduler.adminDigest(store), /נשארו מילים מאושרות ל-2 שיעורים/);
   assert.doesNotMatch(scheduler.adminDigest(store), /ממתינות/);
+  const dash = await ok(admin('GET', 'dashboard'));
+  assert.ok(!dash.notices.some(n => n.text.includes('אין מילים מאושרות')), 'ההודעה נסגרת לבד כשאושרו מילים');
 });
 
 test('התראות לילד: בשעה שנקבעה, פעם אחת, תזכורת עד להשלמה; שיעור שהוחמץ מחזיר את המילים לתור', async () => {
@@ -298,6 +300,18 @@ test('תאריך התחלה: לפניו אין שיעור ואין התראה; �
   setClock('2026-10-21T10:00:00Z');
   assert.notEqual((await ok(kid('GET', 'child/home'))).mode, 'soon');
   await ok(admin('PUT', 'settings', { startDate: '' }));
+});
+
+test('אין מילים ברמת הילד: משלימים ממילים מאושרות ברמה קודמת, לא מרמה גבוהה יותר', async () => {
+  const older = await ok(admin('POST', 'children', { name: 'אביב', age: 12, gender: 'm', level: 'intermediate', newPerDay: 3, reviewPerDay: 3, haUserId: 'kid2' }));
+  await ok(admin('POST', 'words', { en: 'environment', he: 'סביבה', level: 'advanced', exampleEn: 'We must protect the environment.', exampleHe: 'עלינו להגן על הסביבה.', distractorsHe: ['ממשלה', 'חברה', 'תרבות'], approve: true }));
+  const dash = await ok(admin('GET', 'dashboard'));
+  const p = dash.children.find(c => c.id === older.id).pool;
+  assert.ok(p.available > 0 && p.fromLower === p.available, 'כל המילים הזמינות מרמה קודמת');
+  const v = await ok(admin('POST', `children/${older.id}/preview`));
+  const levels = Object.keys(v.words).map(id => store.word(id).level);
+  assert.ok(levels.length && levels.every(l => l === 'beginner'), 'לא נלקחה מילה מרמה מתקדמת');
+  await ok(admin('DELETE', `children/${older.id}`));
 });
 
 test('מחיקת פרופיל מוחקת את נתוני הלמידה', async () => {

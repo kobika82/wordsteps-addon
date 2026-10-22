@@ -214,6 +214,11 @@ route('GET', '/api/child/progress', 'child', async ({ child }) => {
 
 // ---- מנהל: לוח בקרה ----
 route('GET', '/api/dashboard', 'admin', async () => ({ ...R.dashboard(store), status: await systemStatus() }));
+route('POST', '/api/notices/dismiss-all', 'admin', async () => {
+  for (const n of store.data.adminNotices) n.dismissed = true;
+  store.save();
+  return { ok: true };
+});
 route('POST', '/api/notices/:id/dismiss', 'admin', async ({ params }) => {
   const n = store.data.adminNotices.find(x => String(x.id) === params.id);
   if (n) n.dismissed = true;

@@ -46,6 +46,13 @@
     if (!p.available) return h('span.badge.bad', 'אין מילים מאושרות');
     return h('span.badge' + (p.lessons < 3 ? '.warn' : '.ok'), p.lessons === 1 ? 'שיעור אחד' : `${p.lessons} שיעורים`);
   }
+  // למה אין מילים: רמה לא תואמת או נושאים שחוסמים
+  function poolHint(p) {
+    if (!p || !p.hint) return null;
+    if (p.hint.type === 'topics') return h('div.small', { style: { color: 'var(--warn)' } }, `יש ${p.hint.count} מילים מאושרות ברמה שלו או ברמות הקודמות, אבל לא בנושאים שנבחרו בפרופיל.`);
+    const other = Object.entries(p.hint.levels).map(([lv, n]) => `${M.levels[lv]} (${n})`).join(', ');
+    return h('div.small', { style: { color: 'var(--warn)' } }, `יש מילים מאושרות רק ברמה גבוהה יותר: ${other}. אפשר להעלות את רמת הילד בפרופיל, או לשנות את רמת המילים במאגר.`);
+  }
   // מלאי המילים המאושרות: לכל ילד — כמה מילים, לכמה שיעורים, ועד מתי; ולכל רמה — מאושרות מול ממתינות
   function stockCard(d) {
     const active = d.children.filter(c => c.active);
@@ -56,8 +63,9 @@
         h('tr', h('th', 'ילד'), h('th', 'רמה'), h('th', 'מילים מאושרות שעוד לא למד'), h('th', 'מילים בשיעור'), h('th', 'מספיק ל-'), h('th', 'עד'), h('th', 'ממתינות לאישור ברמה')),
         active.map(c => h('tr',
           h('td', h('b', c.name)), h('td', M.levels[c.level] || c.level),
-          h('td', String(c.pool.available)), h('td', String(c.pool.perLesson)),
-          h('td', poolText(c.pool)),
+          h('td', String(c.pool.available), c.pool.fromLower ? h('div.small.muted', `כולל ${c.pool.fromLower} מרמות קודמות`) : null),
+          h('td', String(c.pool.perLesson)),
+          h('td', poolText(c.pool), poolHint(c.pool)),
           h('td', c.pool.lastDate ? WS.fmtDate(c.pool.lastDate) : '—'),
           h('td', c.pool.drafts ? h('a', { href: '#/approve' }, String(c.pool.drafts)) : '0'))))) : h('p.muted', 'אין ילדים פעילים.'),
       h('div.row', { style: { marginTop: '10px' } }, h('span.small.muted', 'במאגר לפי רמה:'),
@@ -67,6 +75,10 @@
     const d = await WS.get('dashboard');
     const alerts = [];
     if (!d.status.ha.connected) alerts.push(h('div.alert.warn', '⚠️', h('div', 'אין חיבור ל-Home Assistant — התראות לא יישלחו.')));
+    if (d.notices.length > 1) {
+      alerts.push(h('div.row', { style: { justifyContent: 'flex-end', marginBottom: '6px' } },
+        h('button.btn.sm', { onclick: async () => { await WS.post('notices/dismiss-all'); dashboard(); } }, `הסתרת כל ההודעות (${d.notices.length})`)));
+    }
     for (const n of d.notices) {
       alerts.push(h('div.alert.info', 'ℹ️', h('div.grow', n.text, h('div.small.muted', WS.fmtTime(n.at))),
         h('button.btn.sm.ghost', { onclick: async (e) => { await WS.post(`notices/${n.id}/dismiss`); e.target.closest('.alert').remove(); } }, 'הסתרה')));

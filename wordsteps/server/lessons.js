@@ -31,11 +31,23 @@ function reservedIds(store, childId) {
   return s;
 }
 
-function notice(store, text, childId) {
+// הודעה למנהל. key — הודעה על מצב מתמשך: לא חוזרת פעמיים, ונסגרת לבד כשהמצב נפתר (resolveNotices)
+function notice(store, text, childId, key) {
   const list = store.data.adminNotices;
-  if (list.some(n => n.text === text && !n.dismissed)) return;
-  list.unshift({ id: Date.now() + Math.random(), at: nowIso(), childId: childId || null, text, dismissed: false });
+  if (list.some(n => !n.dismissed && (key ? n.key === key : n.text === text))) return;
+  list.unshift({ id: Date.now() + Math.random(), at: nowIso(), childId: childId || null, text, key: key || null, dismissed: false });
   if (list.length > 100) list.length = 100;
+}
+
+// סוגר הודעות שהמצב שלהן כבר נפתר (למשל: אושרו מילים חדשות לילד שנגמרו לו המילים)
+function resolveNotices(store) {
+  let changed = false;
+  for (const n of store.data.adminNotices) {
+    if (n.dismissed || !n.key || !n.key.startsWith('nowords:')) continue;
+    const child = store.child(n.childId);
+    if (!child || poolInfo(store, child).available > 0) { n.dismissed = true; changed = true; }
+  }
+  if (changed) store.save();
 }
 
 // ---------- מאגר המילים ----------
@@ -100,11 +112,14 @@ async function generateWords(store, { count, level, topic, age }) {
 // המנהל מאשר מילים במאגר; השיעור נבנה מעצמו ביום שבו הילד לומד. אין אישור שיעורים ואין שיעורים מוכנים מראש.
 function isStudyDay(child, date) { return (child.days || []).includes(dowOf(date)); }
 
+// מילים מאושרות לשיעור: קודם ברמה של הילד; כשהן נגמרות — משלימים מהרמה הקודמת, ואז מזו שלפניה
+function allowedLevels(child) { return LEVELS.slice(0, LEVELS.indexOf(child.level) + 1); }
 function candidateWords(store, child, exclude = new Set()) {
   const topics = child.topics || [];
+  const allowed = new Set(allowedLevels(child));
   return store.data.words
-    .filter(w => w.status === 'approved' && w.level === child.level && !exclude.has(w.id) && (!topics.length || topics.includes(w.topic)))
-    .sort((a, b) => a.difficulty - b.difficulty || a.id - b.id);
+    .filter(w => w.status === 'approved' && allowed.has(w.level) && !exclude.has(w.id) && (!topics.length || topics.includes(w.topic)))
+    .sort((a, b) => LEVELS.indexOf(b.level) - LEVELS.indexOf(a.level) || a.difficulty - b.difficulty || a.id - b.id);
 }
 
 // כמה מילים מאושרות שהילד עוד לא למד נשארו — ולכמה ימי לימוד הן מספיקות
@@ -115,7 +130,9 @@ function beforeStart(store, date) { const s = startDate(store); return !!s && da
 // מלאי: כמה מילים מאושרות שהילד עוד לא למד, לכמה שיעורים הן מספיקות, ועד איזה תאריך (לפי ימי הלימוד שלו)
 function poolInfo(store, child) {
   const exclude = new Set([...learnedIds(store, child.id), ...reservedIds(store, child.id)]);
-  const available = candidateWords(store, child, exclude).length;
+  const pool = candidateWords(store, child, exclude);
+  const available = pool.length;
+  const fromLower = pool.filter(w => w.level !== child.level).length;
   const per = child.newPerDay || 0;
   const lessons = per ? Math.ceil(available / per) : 0;
   const drafts = store.data.words.filter(w => w.status === 'draft' && w.level === child.level).length;
@@ -129,7 +146,19 @@ function poolInfo(store, child) {
       if (isStudyDay(child, d) && ++n === lessons) { lastDate = d; break; }
     }
   }
-  return { available, perLesson: per, lessons, lastDate, drafts };
+  // אבחון: כשאין מילים — האם יש מילים מאושרות ברמה אחרת, או שהנושאים שנבחרו חוסמים
+  let hint = null;
+  if (!available) {
+    const learned = learnedIds(store, child.id);
+    const free = store.data.words.filter(w => w.status === 'approved' && !learned.has(w.id));
+    const allowed = new Set(allowedLevels(child));
+    const sameLevel = free.filter(w => allowed.has(w.level)).length;
+    const other = {};
+    for (const w of free) if (!allowed.has(w.level)) other[w.level] = (other[w.level] || 0) + 1;
+    if (sameLevel) hint = { type: 'topics', count: sameLevel };
+    else if (Object.keys(other).length) hint = { type: 'level', levels: other };
+  }
+  return { available, fromLower, perLesson: per, lessons, lastDate, drafts, hint };
 }
 
 // יוצר (פעם אחת) את השיעור של היום. סינכרוני — כך שאין מצב של שני שיעורים לאותו יום.
@@ -140,7 +169,7 @@ function ensureDailyLesson(store, child, date = today()) {
   const exclude = new Set([...learnedIds(store, child.id), ...reservedIds(store, child.id)]);
   const pool = candidateWords(store, child, exclude);
   if (!pool.length) {
-    notice(store, `${child.name}: אין מילים מאושרות חדשות ברמה שלו — היום יהיה רק תרגול חזרה. אשרו מילים במאגר.`, child.id);
+    notice(store, `${child.name}: אין מילים מאושרות חדשות ברמה שלו — היום יהיה רק תרגול חזרה. אשרו מילים במאגר.`, child.id, 'nowords:' + child.id);
     return null;
   }
   const items = pool.slice(0, child.newPerDay).map(w => ({
@@ -479,5 +508,5 @@ function displayStatus(l) {
 module.exports = {
   addWordToBank, generateWords, proposeImage, isStudyDay, startDate, candidateWords, poolInfo, ensureDailyLesson, approveWord,
   buildPlan, checkAnswer, answerStep, homeState, startLesson, answer, advance, complete,
-  nextLessonItems, startPreview, previewAnswer, displayStatus, notice, EXERCISE_TYPES
+  resolveNotices, nextLessonItems, startPreview, previewAnswer, displayStatus, notice, EXERCISE_TYPES
 };
