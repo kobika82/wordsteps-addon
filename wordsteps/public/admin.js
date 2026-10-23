@@ -554,7 +554,7 @@
     const level = h('select', Object.entries(M.levels).map(([k, t]) => h('option', { value: k }, t)));
     const q = h('input', { type: 'search', placeholder: 'סינון', dir: 'ltr' });
     const hideBank = h('input', { type: 'checkbox', checked: true });
-    const nextN = h('input', { type: 'number', value: 20, min: 1, max: 100 });
+    const nextN = h('input', { type: 'number', value: 20, min: 1, max: 999 });
     const grid = h('div.chips', { style: { maxHeight: '320px', overflowY: 'auto', padding: '4px' } });
     const count = h('b');
     const go = h('button.btn.primary', '📥 ייבוא');

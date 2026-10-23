@@ -345,7 +345,7 @@ route('POST', '/api/import', 'admin', async ({ body }) => {
   if (!list) throw new HttpError(404, 'הרשימה לא נמצאה');
   const level = C.LEVELS.includes(body.level) ? body.level : list.level;
   const wanted = new Set((body.words || []).map(s => String(s).toLowerCase()));
-  const words = list.words.filter(w => wanted.has(w.en.toLowerCase())).slice(0, 100);
+  const words = list.words.filter(w => wanted.has(w.en.toLowerCase()));
   if (!words.length) throw new HttpError(400, 'לא נבחרו מילים');
   const job = { id: Math.random().toString(36).slice(2), total: words.length, done: 0, added: [], skipped: [], notes: [], finished: false, error: '' };
   importJobs.set(job.id, job);
