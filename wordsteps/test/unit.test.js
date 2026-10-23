@@ -153,6 +153,25 @@ test('בדיקת Gemini אוטומטית: אקראית מהרמה, שעה אחר
   } finally { gemini.reviewWord = realReview; util.setNow(null); gemini.configure({ apiKey: '' }); }
 });
 
+test('בדיקה ידנית בזמן שהבדיקה האוטומטית באמצע קריאה ל-Gemini — הודעת "תפוס", לא "אין מילים"', async () => {
+  const gemini = require('../server/gemini');
+  const aireview = require('../server/aireview');
+  const words = [{ id: 1, en: 'cat', he: 'חתול', level: 'beginner', status: 'draft' }];
+  const store = { data: { settings: {}, words, children: [{ active: true, level: 'beginner', age: 8 }] }, save() {} };
+  gemini.configure({ apiKey: 'k' });
+  const realReview = gemini.reviewWord;
+  let resolveReview;
+  gemini.reviewWord = () => new Promise(r => { resolveReview = r; });
+  try {
+    const slow = aireview.tick(store); // לא ממתינים: נשאר "תקוע" באמצע הקריאה ל-Gemini, בדיוק כמו הבדיקה האוטומטית התקופתית
+    const manual = await aireview.tick(store, { force: true });
+    assert.match(manual.error, /כבר פועלת/, 'לא ההודעה הגנרית "אין מילים שממתינות... Gemini לא מוגדר"');
+    resolveReview({ verdict: 'ok', reason: 'תקין', changes: {}, model: 'm' });
+    const first = await slow;
+    assert.equal(first.word, 'cat', 'הבדיקה שהייתה באמצע ממשיכה כרגיל');
+  } finally { gemini.reviewWord = realReview; gemini.configure({ apiKey: '' }); }
+});
+
 
 test('חופשה חוזרת כל שנה: לפי חודש-יום, כולל טווח שעובר את סוף השנה', () => {
   const s = require('../server/scheduler');

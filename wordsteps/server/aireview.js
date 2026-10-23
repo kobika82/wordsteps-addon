@@ -46,7 +46,9 @@ function nextRunAt(store) {
 let running = false;
 async function tick(store, { force = false } = {}) {
   const c = config(store), s = state(store);
-  if (running || !gemini.isConfigured()) return null;
+  if (!gemini.isConfigured()) return null;
+  // הבדיקה האוטומטית (כל 30 שניות) עשויה להיות באמצע קריאה ל-Gemini; בלחיצה ידנית זו לא "אין מילים" אלא תפוסה זמנית
+  if (running) return force ? { error: 'בדיקה אוטומטית כבר פועלת כרגע — נסו שוב בעוד כמה שניות.' } : null;
   if (!force) {
     if (!c.enabled || s.count >= c.perDay) return null;
     if (s.lastRunAt && now().getTime() - Date.parse(s.lastRunAt) < waitMin(c, s) * 60000) return null;
