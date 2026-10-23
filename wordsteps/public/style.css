@@ -128,6 +128,7 @@ body.kid { background: var(--kid-bg); background-attachment: fixed; min-height: 
 
 .lesson-top { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; }
 .x-btn { border: 0; background: #fff; width: 40px; height: 40px; border-radius: 50%; font-size: 20px; box-shadow: 0 2px 8px rgba(0,0,0,.08); flex: none; }
+.back-btn { background: #eef2ff; color: #3b2bb5; }
 .pbar { flex: 1; height: 14px; background: rgba(255,255,255,.8); border-radius: 999px; overflow: hidden; }
 .pbar > div { height: 100%; background: linear-gradient(90deg, #22c55e, #84cc16); border-radius: 999px; transition: width .3s; }
 .stage { text-align: center; padding: 30px 10px; }
@@ -144,7 +145,6 @@ body.kid { background: var(--kid-bg); background-attachment: fixed; min-height: 
 .sentence .he { font-size: 17px; color: #4b5563; margin-top: 4px; }
 .navbtns { display: flex; gap: 10px; margin-top: 14px; }
 .navbtns .big-btn { margin-top: 0; }
-.navbtns .back { flex: 0 0 34%; background: #e5e7eb; color: #374151; box-shadow: 0 6px 0 #c7cbd1; }
 .q-title { font-size: 20px; font-weight: 700; color: #4b5563; text-align: center; }
 .q-word { text-align: center; margin: 8px 0 18px; }
 .q-word .word-en, .q-word .word-he { display: inline-block; }

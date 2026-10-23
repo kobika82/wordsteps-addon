@@ -128,7 +128,8 @@
     const done = P.plan.slice(0, P.step).filter(s => s.t !== 'stage').length;
     const top = h('div.lesson-top',
       h('button.x-btn', { 'aria-label': 'יציאה', onclick: () => P.onExit() }, '✕'),
-      h('div.pbar', h('div', { style: { width: Math.round((done / answerable) * 100) + '%' } })));
+      h('div.pbar', h('div', { style: { width: Math.round((done / answerable) * 100) + '%' } })),
+      P.step > 0 ? h('button.x-btn.back-btn', { 'aria-label': 'חזרה לשלב הקודם', onclick: () => advance(P, P.step - 1) }, '→') : null);
     document.body.classList.add('kid');
     const wrap = h('div.kid-wrap', P.preview ? h('div.preview-flag', 'תצוגה מקדימה למנהל — התשובות לא נשמרות') : null, top, body);
     WS.mount(wrap);
@@ -167,7 +168,6 @@
   }
 
   function card(P, s, c) {
-    const prevIsCard = P.plan[P.step - 1]?.t === 'card';
     frame(P, h('div.kid-card.wcard',
       pic(c),
       h('div', h('span.word-en.en', { lang: 'en', dir: 'ltr' }, c.en), WS.speakBtn(c.en)),
@@ -176,9 +176,22 @@
         h('div', h('span.en', { lang: 'en', dir: 'ltr' }, c.exampleEn), WS.speakBtn(c.exampleEn, '')),
         h('div.he', c.exampleHe)) : null,
       h('div.navbtns',
-        prevIsCard ? h('button.big-btn.back', { onclick: () => advance(P, P.step - 1) }, '→ הקודם') : null,
         h('button.big-btn.green', { onclick: () => advance(P, P.step + 1) }, 'הבא ←'))));
     WS.speak(c.en);
+  }
+
+  // תצוגה לשלב שכבר נענה (הגעה אליו אחרי חזרה אחורה) — בלי אפשרות לענות שוב, כך שהתשובה
+  // המקורית (כולל טעות) נשארת כמו שהיא בדוח למנהל; רק כפתור המשך קדימה.
+  function reviewFooter(P, res) {
+    return h('div',
+      h('p.muted', { style: { textAlign: 'center', margin: '10px 0' } },
+        res.correct ? 'עניתם על זה נכון בפעם הקודמת ✔️' : 'כאן טעיתם בפעם הקודמת — זה בסדר, ממשיכים 💡'),
+      h('button.big-btn.blue', { onclick: () => advance(P, P.step + 1) }, 'הבא ←'));
+  }
+  function reviewOptions(s, labelFn) {
+    return h('div.opts', s.options.map(o => h('button.opt' + (labelFn(o).en ? '.en' : '') + (o === s.answer ? '.right' : ''), {
+      dir: labelFn(o).en ? 'ltr' : 'rtl', disabled: true
+    }, labelFn(o).text)));
   }
 
   // פס המשוב בתחתית המסך
@@ -194,6 +207,7 @@
   async function answerAndShow(P, s, payload, after) {
     let r;
     try { r = await submit(P, payload); } catch (e) { WS.fail(e); return null; }
+    if (P.results) P.results[P.step] = r;
     P.step = Math.max(P.step + 1, 0);
     after(r);
     return r;
@@ -227,22 +241,35 @@
 
   function mc(P, s, c) {
     const toHe = s.dir === 'en2he';
+    const seen = P.results && P.results[P.step];
     frame(P, h('div.kid-card',
       h('div.q-title', toHe ? 'מה הפירוש של המילה?' : 'איך אומרים באנגלית?'),
       h('div.q-word', toHe ? [h('span.word-en.en', { lang: 'en', dir: 'ltr' }, c.en), WS.speakBtn(c.en)] : h('span.word-he', c.he)),
-      options(P, s, c, o => ({ text: o, en: !toHe }))));
-    if (toHe) WS.speak(c.en);
+      seen ? reviewOptions(s, o => ({ text: o, en: !toHe })) : options(P, s, c, o => ({ text: o, en: !toHe })),
+      seen ? reviewFooter(P, seen) : null));
+    if (toHe && !seen) WS.speak(c.en);
   }
 
   function cloze(P, s, c) {
     const parts = s.sentence.split(/_{2,}/);
+    const seen = P.results && P.results[P.step];
     frame(P, h('div.kid-card',
       h('div.q-title', 'איזו מילה משלימה את המשפט?'),
       h('div.cloze.en', { lang: 'en', dir: 'ltr' }, parts[0], h('span.blank', ' '), parts.slice(1).join(' ')),
-      options(P, s, c, o => ({ text: o, en: true }))));
+      seen ? reviewOptions(s, o => ({ text: o, en: true })) : options(P, s, c, o => ({ text: o, en: true })),
+      seen ? reviewFooter(P, seen) : null));
   }
 
   function typeEx(P, s, c) {
+    const seen = P.results && P.results[P.step];
+    if (seen) {
+      frame(P, h('div.kid-card',
+        h('div.q-title', 'כתבו את המילה באנגלית'),
+        h('div.q-word', h('span.word-he', c.he)),
+        h('div.word-en.en', { lang: 'en', dir: 'ltr', style: { textAlign: 'center', margin: '10px 0' } }, en(s.answer)),
+        reviewFooter(P, seen)));
+      return;
+    }
     const input = h('input.typebox', { type: 'text', autocomplete: 'off', autocapitalize: 'off', autocorrect: 'off', spellcheck: 'false', lang: 'en', dir: 'ltr', 'aria-label': 'התשובה באנגלית' });
     const hint = h('div.hint');
     const check = h('button.big-btn.green', {
@@ -271,6 +298,16 @@
   }
 
   function match(P, s) {
+    const seen = P.results && P.results[P.step];
+    if (seen) {
+      frame(P, h('div.kid-card',
+        h('div.q-title', { style: { marginBottom: '14px' } }, 'ההתאמה שכבר בוצעה'),
+        h('div.wlist', s.pairs.map(p => h('div.w',
+          h('span.grow', h('span.en', { lang: 'en', dir: 'ltr' }, p.en), ' — ', p.he),
+          (seen.wrong || []).includes(p.w) ? h('span.small', '💡') : h('span.small', '✔️')))),
+        reviewFooter(P, seen)));
+      return;
+    }
     const state = { sel: null, done: new Set(), wrong: new Set() };
     const leftBtns = {}, rightBtns = {};
     const pairs = Object.fromEntries(s.pairs.map(p => [p.w, p]));
