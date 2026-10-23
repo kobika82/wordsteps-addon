@@ -593,8 +593,18 @@ const server = http.createServer((req, res) => {
 async function init() {
   if (ha.connected()) {
     try { const c = await ha.config(); if (!process.env.WS_TZ && c?.time_zone) U.setTimeZone(c.time_zone); } catch (e) { console.warn('HA config:', e.message); }
+    // הקישור בהתראה = הפאנל בתפריט הצד של HA (פתוח גם למשתמשים שאינם מנהלים).
+    // לא /hassio/ingress/<slug> — זה אזור התוספים של המנהל, וילד מגיע ממנו למסך הבית של HA.
     const info = await ha.selfInfo();
-    if (info?.slug) scheduler.setPanelUrl(`/hassio/ingress/${info.slug}`);
+    if (info?.slug) {
+      let path = info.slug;
+      try {
+        const panels = await ha.wsCommand({ type: 'get_panels' });
+        const p = Object.values(panels || {}).find(x => x.config && x.config.addon === info.slug);
+        if (p?.url_path) path = p.url_path;
+      } catch (e) { console.warn('HA panels:', e.message); }
+      scheduler.setPanelUrl('/' + path);
+    }
   }
   if (options.panel_url) scheduler.setPanelUrl(options.panel_url);
   if (process.env.WORDSTEPS_NO_SCHEDULER !== '1') scheduler.start(store);
