@@ -127,6 +127,16 @@ function candidateWords(store, child, exclude = new Set()) {
 // השיעורים מתחילים מתאריך שנקבע בהגדרות (ריק = מיד)
 function startDate(store) { return store.data.settings.startDate || ''; }
 function beforeStart(store, date) { const s = startDate(store); return !!s && date < s; }
+// שיעורים יומיים שנבנו לפני תאריך ההתחלה ולא התחילו — לא "הוחמצו", הם פשוט לא היו אמורים להיות. נמחקים.
+function dropBeforeStart(store) {
+  const s = startDate(store);
+  if (!s) return 0;
+  const before = store.data.lessons.length;
+  store.data.lessons = store.data.lessons.filter(l => !(l.kind === 'daily' && l.date < s && !l.session && l.status === 'approved'));
+  const removed = before - store.data.lessons.length;
+  if (removed) store.save();
+  return removed;
+}
 
 // מלאי: כמה מילים מאושרות שהילד עוד לא למד, לכמה שיעורים הן מספיקות, ועד איזה תאריך (לפי ימי הלימוד שלו)
 function poolInfo(store, child) {
@@ -191,9 +201,33 @@ function approveWord(store, w) {
   const miss = missingFields(w, ['mc']);
   if (miss.length) throw new HttpError(400, `לא ניתן לאשר את "${w.en}" — חסר: ${miss.join(', ')}`);
   w.status = 'approved';
-  w.updatedAt = nowIso();
+  w.updatedAt = w.approvedAt = nowIso();
   store.save();
   return w;
+}
+
+// ביטול אישור: המילים חוזרות לממתינות. אם הן כבר שובצו בשיעור שנבנה ועוד לא התחיל — יוצאות ממנו
+// (ושיעור שנשאר בלי מילים חדשות נמחק, וייבנה מחדש כשהילד ייכנס)
+function unapproveWords(store, ids) {
+  const set = new Set(ids.map(Number));
+  let count = 0;
+  for (const w of store.data.words) {
+    if (!set.has(w.id) || w.status !== 'approved') continue;
+    w.status = 'draft';
+    w.approvedAt = null;
+    w.updatedAt = nowIso();
+    count++;
+  }
+  const changed = [];
+  for (const l of store.data.lessons) {
+    if (l.kind !== 'daily' || l.status !== 'approved' || l.session) continue;
+    const before = l.items.length;
+    l.items = l.items.filter(i => !set.has(i.wordId));
+    if (l.items.length !== before) changed.push(l.id);
+  }
+  store.data.lessons = store.data.lessons.filter(l => !(changed.includes(l.id) && !l.items.some(i => i.role === 'new')));
+  store.save();
+  return { count, lessonsChanged: changed.length };
 }
 
 // ---------- בניית רצף התרגילים ----------
@@ -507,7 +541,7 @@ function displayStatus(l) {
 }
 
 module.exports = {
-  addWordToBank, generateWords, proposeImage, isStudyDay, startDate, candidateWords, poolInfo, ensureDailyLesson, approveWord,
+  addWordToBank, generateWords, proposeImage, isStudyDay, startDate, candidateWords, poolInfo, ensureDailyLesson, approveWord, unapproveWords,
   buildPlan, checkAnswer, answerStep, homeState, startLesson, answer, advance, complete,
-  resolveNotices, nextLessonItems, startPreview, previewAnswer, displayStatus, notice, EXERCISE_TYPES
+  resolveNotices, dropBeforeStart, nextLessonItems, startPreview, previewAnswer, displayStatus, notice, EXERCISE_TYPES
 };

@@ -63,6 +63,7 @@ function report(store, child, from, to) {
 
 function dashboard(store) {
   L.resolveNotices(store);
+  L.dropBeforeStart(store);
   const date = today();
   const weekAgo = addDays(date, -6);
   const children = store.data.children.map(c => {

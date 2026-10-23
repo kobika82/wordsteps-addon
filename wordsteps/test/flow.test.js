@@ -314,6 +314,35 @@ test('אין מילים ברמת הילד: משלימים ממילים מאוש�
   await ok(admin('DELETE', `children/${older.id}`));
 });
 
+test('ביטול אישור: המילים חוזרות לממתינות ויוצאות משיעור שעוד לא התחיל', async () => {
+  setClock('2026-10-22T10:00:00Z');
+  const home = await ok(kid('GET', 'child/home'));
+  assert.equal(home.mode, 'start');
+  const lesson = store.lesson(home.lessonId);
+  const ids = lesson.items.map(i => i.wordId);
+  assert.ok(ids.length >= 1);
+  const recent = await ok(admin('GET', 'words?recent=24'));
+  const r = await ok(admin('POST', 'words/unapprove', { ids }));
+  assert.equal(r.count, ids.length);
+  assert.ok(ids.every(id => store.word(id).status === 'draft'));
+  assert.equal(store.lesson(home.lessonId), undefined, 'שיעור שנשאר בלי מילים חדשות נמחק');
+  assert.ok((await ok(admin('GET', 'words?recent=24'))).length < recent.length + 1);
+  await ok(admin('POST', 'words/approve', { ids }));
+  const again = await ok(admin('GET', 'words?recent=24'));
+  assert.ok(ids.every(id => again.some(w => w.id === id)), 'מילים שאושרו עכשיו מופיעות ב"אושרו לאחרונה"');
+});
+
+test('שיעור שנבנה לפני שנקבע תאריך התחלה — נמחק, לא נספר כ"הוחמץ"', async () => {
+  const home = await ok(kid('GET', 'child/home'));
+  assert.ok(store.lesson(home.lessonId), 'נבנה שיעור ל-22/10');
+  await ok(admin('PUT', 'settings', { startDate: '2026-10-23' }));
+  assert.equal(dailyLessons('2026-10-22').length, 0);
+  setClock('2026-10-23T10:00:00Z');
+  const list = await ok(admin('GET', 'lessons'));
+  assert.ok(!list.some(l => l.date === '2026-10-22'), 'לא מופיע כהוחמץ');
+  await ok(admin('PUT', 'settings', { startDate: '' }));
+});
+
 test('מחיקת פרופיל מוחקת את נתוני הלמידה', async () => {
   await ok(admin('DELETE', `children/${child.id}`));
   assert.equal(store.data.lessons.filter(l => l.childId === child.id).length, 0);

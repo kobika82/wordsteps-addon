@@ -293,11 +293,14 @@ route('GET', '/api/notifications', 'admin', async ({ query }) => {
 route('GET', '/api/words', 'admin', async ({ query }) => {
   const q = (query.get('q') || '').trim().toLowerCase();
   const level = query.get('level'), topic = query.get('topic'), status = query.get('status'), ai = query.get('ai');
+  // recent=<שעות>: מילים שאושרו לאחרונה (לביטול אישור)
+  const recentSince = query.get('recent') ? new Date(U.now().getTime() - Number(query.get('recent')) * 3600000).toISOString() : '';
   return store.data.words.filter(w =>
     (!q || w.en.toLowerCase().includes(q) || w.he.includes(q)) &&
     (!level || w.level === level) && (!topic || w.topic === topic) && (!status || w.status === status) &&
-    (!ai || (ai === 'none' ? !w.ai : w.ai && w.ai.verdict === ai))
-  ).sort((a, b) => b.id - a.id).map(wordRow);
+    (!ai || (ai === 'none' ? !w.ai : w.ai && w.ai.verdict === ai)) &&
+    (!recentSince || (w.status === 'approved' && (w.approvedAt || w.updatedAt || '') >= recentSince))
+  ).sort((a, b) => recentSince ? String(b.approvedAt || b.updatedAt).localeCompare(String(a.approvedAt || a.updatedAt)) : b.id - a.id).map(wordRow);
 });
 route('POST', '/api/words', 'admin', async ({ body }) => {
   let data = body;
@@ -379,6 +382,7 @@ route('POST', '/api/words/generate', 'admin', async ({ body }) => {
   return { added: added.length, words: added };
 });
 // אישור מרוכז של מילים במאגר
+route('POST', '/api/words/unapprove', 'admin', async ({ body }) => L.unapproveWords(store, body.ids || []));
 route('POST', '/api/words/approve', 'admin', async ({ body }) => {
   const results = [];
   for (const id of body.ids || []) {
@@ -441,6 +445,7 @@ route('POST', '/api/images/generate', 'admin', async ({ body }) => {
 
 // ---- מנהל: שיעורים (צפייה בלבד — השיעורים נבנים אוטומטית ממילים מאושרות) ----
 route('GET', '/api/lessons', 'admin', async ({ query }) => {
+  L.dropBeforeStart(store);
   const status = query.get('status'), cid = query.get('childId');
   const from = query.get('from') || U.addDays(U.today(), -30);
   return store.data.lessons
@@ -481,7 +486,10 @@ route('PUT', '/api/settings', 'admin', async ({ body }) => {
     const a = body.aiReview;
     s.aiReview = { enabled: !!a.enabled, perDay: int(a.perDay, 1, 100, 10), intervalMin: int(a.intervalMin, 5, 1440, 60), retryMin: int(a.retryMin, 1, 1440, 10) };
   }
-  if ('startDate' in body) s.startDate = /^\d{4}-\d{2}-\d{2}$/.test(body.startDate || '') ? body.startDate : '';
+  if ('startDate' in body) {
+    s.startDate = /^\d{4}-\d{2}-\d{2}$/.test(body.startDate || '') ? body.startDate : '';
+    L.dropBeforeStart(store);
+  }
   if ('adminUserIds' in body && Array.isArray(body.adminUserIds)) s.adminUserIds = body.adminUserIds.map(String);
   store.save();
   return s;
