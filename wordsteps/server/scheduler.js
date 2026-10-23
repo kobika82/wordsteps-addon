@@ -1,7 +1,7 @@
 'use strict';
 // מתזמן: הודעה יומית למנהל (רק כשיש מילים לאישור), התראה יומית לכל ילד ותזכורת אם לא השלים.
 // רץ כל 30 שניות. כל שליחה נרשמת ביומן ההתראות, כולל כשלונות.
-const { localParts, toMinutes, now } = require('./util');
+const { localParts, toMinutes, now, dowOf } = require('./util');
 const ha = require('./ha');
 const L = require('./lessons');
 const aireview = require('./aireview');
@@ -13,6 +13,17 @@ const MAX_ATTEMPTS = 3;
 let panelUrl = '';
 function setPanelUrl(u) { panelUrl = u || ''; }
 function getPanelUrl() { return panelUrl; }
+
+// שעת ההתראה לילד בתאריך מסוים: חופשה (לכל הילדים) > שעה לפי יום בשבוע > השעה הרגילה
+function holidayOn(store, date) {
+  return (store.data.settings.holidays || []).find(h => h.from <= date && date <= (h.to || h.from)) || null;
+}
+function notifyTimeFor(store, child, date) {
+  const h = holidayOn(store, date);
+  if (h && toMinutes(h.time) != null) return h.time;
+  const t = (child.dayTimes || {})[dowOf(date)];
+  return toMinutes(t) != null ? t : child.notifyTime;
+}
 
 function word(g, m, f, n) { return g === 'f' ? f : g === 'm' ? m : n; }
 
@@ -57,7 +68,7 @@ function availability(store, child, date) {
 
 async function childTick(store, child, p) {
   if (!child.active || !child.notifyService || !L.isStudyDay(child, p.date)) return;
-  const at = toMinutes(child.notifyTime);
+  const at = toMinutes(notifyTimeFor(store, child, p.date));
   if (at == null || p.minutes < at) return;
   const st = child.notifyState && child.notifyState.date === p.date ? child.notifyState : (child.notifyState = { date: p.date, daily: null, dailyAttempts: 0, lastAttempt: 0, reminder: null });
   const info = availability(store, child, p.date);
@@ -125,4 +136,4 @@ function start(store) {
   return setInterval(() => tick(store).catch(e => console.error(e)), 30000);
 }
 
-module.exports = { start, tick, send, setPanelUrl, getPanelUrl, dailyMessage, adminDigest };
+module.exports = { start, tick, send, setPanelUrl, getPanelUrl, dailyMessage, adminDigest, notifyTimeFor, holidayOn };

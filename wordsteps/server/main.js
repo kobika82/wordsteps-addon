@@ -103,6 +103,8 @@ function sanitizeChild(input, base = {}) {
   if (has('newPerDay')) c.newPerDay = int(input.newPerDay, 0, 20, 5);
   if (has('reviewPerDay')) c.reviewPerDay = int(input.reviewPerDay, 0, 40, 7);
   if (has('notifyTime')) c.notifyTime = U.toMinutes(input.notifyTime) != null ? input.notifyTime : '16:00';
+  // שעה שונה לפי יום בשבוע (0=ראשון … 6=שבת); ריק = השעה הרגילה
+  if (has('dayTimes')) c.dayTimes = Object.fromEntries([0, 1, 2, 3, 4, 5, 6].map(d => [d, U.toMinutes((input.dayTimes || {})[d]) != null ? input.dayTimes[d] : '']).filter(([, t]) => t));
   if (has('days')) c.days = (Array.isArray(input.days) ? input.days : []).map(Number).filter(d => d >= 0 && d <= 6);
   if (has('haUserId')) c.haUserId = String(input.haUserId || '');
   if (has('notifyService')) c.notifyService = /^mobile_app_[a-z0-9_]+$/.test(input.notifyService || '') ? input.notifyService : '';
@@ -485,6 +487,15 @@ route('PUT', '/api/settings', 'admin', async ({ body }) => {
   if (body.aiReview && typeof body.aiReview === 'object') {
     const a = body.aiReview;
     s.aiReview = { enabled: !!a.enabled, perDay: int(a.perDay, 1, 100, 10), intervalMin: int(a.intervalMin, 5, 1440, 60), retryMin: int(a.retryMin, 1, 1440, 10) };
+  }
+  if (Array.isArray(body.holidays)) {
+    s.holidays = body.holidays.map(h => ({
+      name: String(h.name || '').trim().slice(0, 40),
+      from: /^\d{4}-\d{2}-\d{2}$/.test(h.from || '') ? h.from : '',
+      to: /^\d{4}-\d{2}-\d{2}$/.test(h.to || '') ? h.to : '',
+      time: U.toMinutes(h.time) != null ? h.time : ''
+    })).filter(h => h.from && h.time).map(h => ({ ...h, to: h.to && h.to >= h.from ? h.to : h.from }))
+      .sort((a, b) => a.from.localeCompare(b.from));
   }
   if ('startDate' in body) {
     s.startDate = /^\d{4}-\d{2}-\d{2}$/.test(body.startDate || '') ? body.startDate : '';

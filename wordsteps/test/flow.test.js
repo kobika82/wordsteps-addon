@@ -343,6 +343,27 @@ test('שיעור שנבנה לפני שנקבע תאריך התחלה — נמח
   await ok(admin('PUT', 'settings', { startDate: '' }));
 });
 
+test('שעת התראה לפי יום בשבוע וחופשות', async () => {
+  const sent = [];
+  ha.notify = async (service, msg) => { sent.push(msg); };
+  await ok(admin('PUT', `children/${child.id}`, { notifyTime: '16:00', days: [0, 1, 2, 3, 4, 5, 6], dayTimes: { 5: '10:00', 6: '10:00' }, reminderEnabled: false }));
+  // שישי 30/10 — 10:00 (אחרי המעבר לשעון חורף: UTC+2)
+  setClock('2026-10-30T07:30:00Z'); // 09:30
+  await scheduler.tick(store);
+  assert.equal(sent.length, 0);
+  setClock('2026-10-30T08:01:00Z'); // 10:01
+  await scheduler.tick(store);
+  assert.equal(sent.length, 1, 'בשישי נשלח ב-10:00');
+  // חופשה ביום רגיל (ראשון 1/11) — שעת החופשה גוברת
+  await ok(admin('PUT', 'settings', { holidays: [{ name: 'חופשה', from: '2026-11-01', to: '2026-11-02', time: '09:00' }, { name: 'שגוי', from: 'x', time: '09:00' }] }));
+  assert.equal(store.data.settings.holidays.length, 1, 'רשומה לא תקינה נזרקת');
+  setClock('2026-11-01T07:05:00Z'); // 09:05
+  await scheduler.tick(store);
+  assert.equal(sent.length, 2, 'בחופשה נשלח ב-09:00');
+  assert.equal(scheduler.notifyTimeFor(store, store.child(child.id), '2026-11-03'), '16:00', 'אחרי החופשה — השעה הרגילה');
+  await ok(admin('PUT', 'settings', { holidays: [] }));
+});
+
 test('מחיקת פרופיל מוחקת את נתוני הלמידה', async () => {
   await ok(admin('DELETE', `children/${child.id}`));
   assert.equal(store.data.lessons.filter(l => l.childId === child.id).length, 0);

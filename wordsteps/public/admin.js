@@ -115,7 +115,7 @@
         h('div.row', h('h2.grow', c.name), c.active ? h('span.badge.ok', 'פעיל') : h('span.badge', 'מושהה')),
         h('div.muted', `גיל ${c.age} · רמה ${M.levels[c.level]}`),
         h('div.muted', `${c.newPerDay} מילים חדשות + ${c.reviewPerDay} לחזרה ביום`),
-        h('div.muted', `התראה ${c.notifyTime} · ימים: ${c.days.map(d => DAYS[d]).join(' ')}`),
+        h('div.muted', `התראה ${c.notifyTime}` + Object.entries(c.dayTimes || {}).map(([d, t]) => ` · ${DAYS[d]} ${t}`).join('') + ` · ימים: ${c.days.map(d => DAYS[d]).join(' ')}`),
         h('div.small', c.haUserId ? '✓ משויך למשתמש Home Assistant' : h('span', { style: { color: 'var(--bad)' } }, 'לא משויך למשתמש')),
         h('div.small', c.notifyService ? `📱 ${c.notifyService.replace('mobile_app_', '')}` : 'ללא מכשיר להתראות')))) : h('p.muted', 'עוד אין ילדים.'));
   }
@@ -151,6 +151,7 @@
       reminderAfterMin: h('input', { type: 'number', value: v.reminderAfterMin, min: 15, max: 720 })
     };
     const days = checks(DAYS.map((d, i) => [String(i), d]), v.days.map(String), 'days');
+    const dayTimeInputs = DAYS.map((d, i) => h('input', { type: 'time', value: (v.dayTimes || {})[i] || '' }));
     const topics = checks(Object.entries(M.topics), v.topics, 'topics');
     const exTypes = checks(Object.entries(EX_HE), v.exerciseTypes, 'ex');
     const form = h('div',
@@ -167,7 +168,14 @@
         h('div.grid2',
           field('משתמש Home Assistant של הילד', I.haUserId, usersR.error ? 'לא ניתן לקרוא את רשימת המשתמשים מ-HA: ' + usersR.error + '. מוצגים משתמשים שכבר נכנסו לאפליקציה.' : 'הילד נכנס דרך אפליקציית Home Assistant שלו — בלי סיסמה נוספת.'),
           field('מכשיר להתראות', I.notifyService, servR.error || 'שירות notify של אפליקציית HA באייפון של הילד.'),
-          field('שעת ההתראה היומית', I.notifyTime)),
+          field('שעת ההתראה הרגילה', I.notifyTime)),
+        h('h3', { style: { marginTop: '14px' } }, 'שעה שונה לפי יום (ריק = השעה הרגילה)'),
+        h('div.grid3', { style: { gridTemplateColumns: 'repeat(auto-fit, minmax(110px, 1fr))' } },
+          DAYS.map((d, i) => field('יום ' + d, dayTimeInputs[i]))),
+        h('div.row', { style: { marginTop: '6px' } },
+          h('button.btn.sm', { onclick: () => { dayTimeInputs[5].value = '10:00'; dayTimeInputs[6].value = '10:00'; } }, 'שישי-שבת: 10:00'),
+          h('button.btn.sm', { onclick: () => dayTimeInputs.forEach(x => (x.value = '')) }, 'ניקוי')),
+        h('p.small.muted', 'בימי חופשה שהוגדרו בהגדרות — נשלחת בשעת החופשה, לכל הילדים.'),
         h('div.row', { style: { marginTop: '10px' } }, h('label.checks', I.reminderEnabled, ' תזכורת נוספת אם השיעור לא הושלם, אחרי'), h('div', { style: { width: '90px' } }, I.reminderAfterMin), 'דקות'),
         isNew ? null : h('div.row', { style: { marginTop: '12px' } },
           h('button.btn', { onclick: (e) => WS.busy(e.currentTarget, async () => {
@@ -181,6 +189,7 @@
       const body = {
         name: I.name.value, age: I.age.value, gender: I.gender.value, level: I.level.value, active: I.active.checked,
         newPerDay: I.newPerDay.value, reviewPerDay: I.reviewPerDay.value, notifyTime: I.notifyTime.value,
+        dayTimes: Object.fromEntries(dayTimeInputs.map((x, i) => [i, x.value])),
         haUserId: I.haUserId.value, notifyService: I.notifyService.value,
         reminderEnabled: I.reminderEnabled.checked, reminderAfterMin: I.reminderAfterMin.value,
         days: checked(form, 'days').map(Number), topics: checked(form, 'topics'), exerciseTypes: checked(form, 'ex')
@@ -734,6 +743,24 @@
     const adminChecks = h('div.checks', usersR.users.map(u => h('label',
       h('input', { type: 'checkbox', name: 'adm', value: u.id, checked: u.isAdmin || s.adminUserIds.includes(u.id), disabled: u.isAdmin }),
       u.name + (u.isAdmin ? ' (מנהל ב-HA)' : ''))));
+    // חופשות: שם, מתאריך, עד תאריך, שעת התראה
+    const holBox = h('div');
+    const holRows = [];
+    const addHoliday = (x) => {
+      const r = {
+        name: h('input', { type: 'text', value: x.name || '', placeholder: 'למשל: חנוכה' }),
+        from: h('input', { type: 'date', value: x.from || '' }),
+        to: h('input', { type: 'date', value: x.to || '' }),
+        time: h('input', { type: 'time', value: x.time || '10:00' })
+      };
+      r.el = h('div.row', { style: { marginBottom: '6px', alignItems: 'flex-end' } },
+        h('div', { style: { width: '160px' } }, field('שם', r.name)), h('div', { style: { width: '150px' } }, field('מתאריך', r.from)),
+        h('div', { style: { width: '150px' } }, field('עד תאריך', r.to)), h('div', { style: { width: '110px' } }, field('שעת התראה', r.time)),
+        h('button.btn.sm.danger', { onclick: () => r.el.remove() }, 'הסרה'));
+      holRows.push(r);
+      holBox.appendChild(r.el);
+    };
+    (s.holidays || []).forEach(addHoliday);
     const ok = v => v ? h('span.badge.ok', 'תקין') : h('span.badge.bad', 'לא מחובר');
     page('הגדרות',
       h('div.card', h('h2', 'מצב המערכת'),
@@ -746,6 +773,10 @@
       h('div.card', h('h2', 'תחילת השיעורים'),
         h('div', { style: { maxWidth: '220px' } }, field('השיעורים מתחילים בתאריך', I.startDate)),
         h('p.small.muted', 'עד התאריך הזה לא נבנים שיעורים ולא נשלחות התראות לילדים. ריק = מיד.')),
+      h('div.card', h('h2', '🏖️ חופשות — שעת התראה אחרת'),
+        h('p.small.muted', 'בימים שבטווח, ההתראה לכל הילדים נשלחת בשעה שנקבעה כאן (במקום השעה הרגילה). ימי הלימוד של כל ילד לא משתנים.'),
+        holBox,
+        h('button.btn.sm', { style: { marginTop: '8px' }, onclick: () => addHoliday({}) }, '+ חופשה')),
       h('div.card', h('h2', 'הודעה יומית למנהל'),
         h('p.small.muted', 'נשלחת רק כשיש מילים שממתינות לאישור, או כשלילד נשארו מילים מאושרות לפחות מ-3 ימים.'),
         h('div.grid3', field('שעת ההודעה', I.prepTime), field('המכשיר שלך להודעות', I.adminNotifyService)),
@@ -761,6 +792,7 @@
       h('div.row', h('button.btn.primary', { onclick: (e) => WS.busy(e.currentTarget, async () => {
         await WS.put('settings', {
           adminNotifyService: I.adminNotifyService.value, prepTime: I.prepTime.value, startDate: I.startDate.value,
+          holidays: holRows.filter(r => r.el.isConnected).map(r => ({ name: r.name.value, from: r.from.value, to: r.to.value, time: r.time.value })),
           aiReview: { enabled: I.aiEnabled.checked, perDay: I.aiPerDay.value, intervalMin: I.aiInterval.value, retryMin: I.aiRetry.value },
           imageSource: I.imageSource.value, notifyReviewDays: I.notifyReviewDays.checked,
           adminUserIds: [...adminChecks.querySelectorAll('input:checked:not(:disabled)')].map(x => x.value)
