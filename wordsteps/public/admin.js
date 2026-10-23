@@ -380,14 +380,11 @@
     const list = h('div');
     const tabs = h('div.row', { style: { marginBottom: '10px' } });
     const aiBar = h('div');
-    const bulk = h('button.btn.ok', '✔ אישור כל המילים שבעמוד');
     const bulkDel = h('button.btn.danger', '🗑 מחיקת המילים שבעמוד');
     const bulkUndo = h('button.btn', '↩ החזרת המילים שבעמוד לממתינות');
-    const undoBar = h('div');
     const unapprove = async (ids) => {
       const r = await WS.post('words/unapprove', { ids });
       WS.toast(`${r.count} מילים חזרו לממתינות` + (r.lessonsChanged ? ` (והוצאו מ-${r.lessonsChanged} שיעורים שעוד לא התחילו)` : ''));
-      undoBar.innerHTML = '';
       await drawStatus(); await load();
     };
     bulkUndo.onclick = () => WS.busy(bulkUndo, async () => {
@@ -426,23 +423,9 @@
       list.append(h('p.small.muted', rows.length ? `${rows.length} מילים` + (rows.length > PAGE ? ` — מוצגות ${PAGE} הראשונות` : '') : ''),
         ...cards.map(c => c.el));
       if (!rows.length) list.appendChild(h('div.card.center', h('p', tab ? 'אין מילים בלשונית הזו.' : '🎉 אין מילים שממתינות לאישור.'), tab ? null : h('a.btn', { href: '#/words' }, '📚 הוספת מילים למאגר')));
-      bulk.disabled = !rows.length;
-      bulk.classList.toggle('hidden', tab === 'reject' || tab === 'recent');
       bulkUndo.classList.toggle('hidden', tab !== 'recent' || !rows.length);
       bulkDel.classList.toggle('hidden', tab !== 'reject' || !rows.length);
     }
-    bulk.onclick = () => WS.busy(bulk, async () => {
-      for (const c of cards) if (c.dirty()) await c.save();
-      const r = await WS.post('words/approve', { ids: cards.map(c => c.id) });
-      const bad = r.results.filter(x => !x.ok);
-      WS.toast(`אושרו ${r.results.length - bad.length} מילים`);
-      if (bad.length) WS.toast(bad.map(b => b.error).join(' | '), true);
-      const okIds = r.results.filter(x => x.ok).map(x => x.id);
-      undoBar.innerHTML = '';
-      if (okIds.length) undoBar.appendChild(h('div.alert.info', '✔', h('div.grow', `אושרו ${okIds.length} מילים.`),
-        h('button.btn.sm', { onclick: (e) => WS.busy(e.currentTarget, () => unapprove(okIds)) }, '↩ ביטול')));
-      await drawStatus(); await load();
-    });
     bulkDel.onclick = () => WS.busy(bulkDel, async () => {
       if (!confirm(`למחוק ${cards.length} מילים שנפסלו מהמאגר?`)) return;
       for (const c of cards) await WS.del('words/' + c.id);
@@ -451,9 +434,10 @@
     });
     fl.onchange = load;
     page('אישור מילים',
-      h('p.muted', 'ילד רואה רק מילים שאישרתם. Gemini עובר על המילים הממתינות לבד ומציע: לאשר, לתקן או לפסול — וההחלטה הסופית שלכם.'),
-      undoBar, aiBar, tabs,
-      h('div.row', { style: { marginBottom: '12px' } }, h('div', { style: { width: '170px' } }, fl), h('div.grow'), bulkDel, bulkUndo, bulk),
+      h('p.muted', 'ילד רואה רק מילים שאישרתם. Gemini עובר על המילים הממתינות לבד ומציע: לאשר, לתקן או לפסול — וההחלטה הסופית שלכם, מילה-מילה.'),
+      aiBar, tabs,
+
+      h('div.row', { style: { marginBottom: '12px' } }, h('div', { style: { width: '170px' } }, fl), h('div.grow'), bulkDel, bulkUndo),
       list);
     await drawStatus();
     await load();
