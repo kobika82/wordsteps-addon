@@ -15,8 +15,15 @@ function setPanelUrl(u) { panelUrl = u || ''; }
 function getPanelUrl() { return panelUrl; }
 
 // שעת ההתראה לילד בתאריך מסוים: חופשה (לכל הילדים) > שעה לפי יום בשבוע > השעה הרגילה
+// yearly = חוזרת כל שנה באותם תאריכים לועזיים (משווים חודש-יום; גם טווח שעובר את סוף השנה)
+function inHoliday(h, date) {
+  const to = h.to || h.from;
+  if (!h.yearly) return h.from <= date && date <= to;
+  const md = date.slice(5), f = h.from.slice(5), t = to.slice(5);
+  return f <= t ? f <= md && md <= t : md >= f || md <= t;
+}
 function holidayOn(store, date) {
-  return (store.data.settings.holidays || []).find(h => h.from <= date && date <= (h.to || h.from)) || null;
+  return (store.data.settings.holidays || []).find(h => inHoliday(h, date)) || null;
 }
 function notifyTimeFor(store, child, date) {
   const h = holidayOn(store, date);

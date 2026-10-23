@@ -153,3 +153,18 @@ test('בדיקת Gemini אוטומטית: אקראית מהרמה, שעה אחר
   } finally { gemini.reviewWord = realReview; util.setNow(null); gemini.configure({ apiKey: '' }); }
 });
 
+
+test('חופשה חוזרת כל שנה: לפי חודש-יום, כולל טווח שעובר את סוף השנה', () => {
+  const s = require('../server/scheduler');
+  const store = { data: { settings: { holidays: [
+    { name: 'חופש גדול', from: '2027-06-21', to: '2027-08-31', time: '10:00', yearly: true },
+    { name: 'חג המולד', from: '2026-12-25', to: '2027-01-02', time: '09:00', yearly: true },
+    { name: 'חד-פעמי', from: '2027-03-23', to: '2027-03-24', time: '11:00' }
+  ] } } };
+  assert.equal(s.holidayOn(store, '2030-07-15').name, 'חופש גדול', 'שנה אחרת — אותם תאריכים');
+  assert.equal(s.holidayOn(store, '2030-09-01'), null);
+  assert.equal(s.holidayOn(store, '2031-01-01').name, 'חג המולד', 'טווח שעובר את סוף השנה');
+  assert.equal(s.holidayOn(store, '2027-03-24').name, 'חד-פעמי');
+  assert.equal(s.holidayOn(store, '2028-03-24'), null, 'חופשה לא-חוזרת לא חוזרת');
+  assert.equal(s.notifyTimeFor(store, { notifyTime: '16:00' }, '2029-08-01'), '10:00');
+});

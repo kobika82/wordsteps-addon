@@ -476,6 +476,12 @@ async function systemStatus() {
     gemini: gemini.info(), timeZone: U.timeZone(), now: U.localParts(), dev: DEV
   };
 }
+// הצעות ללוח חופשות (לא רשמי — המנהל בוחר מה להוסיף). רק חופשות שעוד לא הסתיימו, או חוזרות כל שנה
+route('GET', '/api/holiday-suggestions', 'admin', async () => {
+  const data = require('./holiday-suggestions.json');
+  const t = U.today();
+  return { ...data, holidays: data.holidays.filter(h => h.yearly || h.to >= t) };
+});
 route('GET', '/api/settings', 'admin', async () => ({ settings: store.data.settings, status: await systemStatus() }));
 route('PUT', '/api/settings', 'admin', async ({ body }) => {
   const s = store.data.settings;
@@ -493,8 +499,9 @@ route('PUT', '/api/settings', 'admin', async ({ body }) => {
       name: String(h.name || '').trim().slice(0, 40),
       from: /^\d{4}-\d{2}-\d{2}$/.test(h.from || '') ? h.from : '',
       to: /^\d{4}-\d{2}-\d{2}$/.test(h.to || '') ? h.to : '',
-      time: U.toMinutes(h.time) != null ? h.time : ''
-    })).filter(h => h.from && h.time).map(h => ({ ...h, to: h.to && h.to >= h.from ? h.to : h.from }))
+      time: U.toMinutes(h.time) != null ? h.time : '',
+      yearly: !!h.yearly
+    })).filter(h => h.from && h.time).map(h => ({ ...h, to: h.to && (h.yearly || h.to >= h.from) ? h.to : h.from }))
       .sort((a, b) => a.from.localeCompare(b.from));
   }
   if ('startDate' in body) {

@@ -751,16 +751,39 @@
         name: h('input', { type: 'text', value: x.name || '', placeholder: 'למשל: חנוכה' }),
         from: h('input', { type: 'date', value: x.from || '' }),
         to: h('input', { type: 'date', value: x.to || '' }),
-        time: h('input', { type: 'time', value: x.time || '10:00' })
+        time: h('input', { type: 'time', value: x.time || '10:00' }),
+        yearly: h('input', { type: 'checkbox', checked: !!x.yearly })
       };
       r.el = h('div.row', { style: { marginBottom: '6px', alignItems: 'flex-end' } },
         h('div', { style: { width: '160px' } }, field('שם', r.name)), h('div', { style: { width: '150px' } }, field('מתאריך', r.from)),
         h('div', { style: { width: '150px' } }, field('עד תאריך', r.to)), h('div', { style: { width: '110px' } }, field('שעת התראה', r.time)),
+        h('label.checks', { style: { paddingBottom: '10px' } }, r.yearly, ' כל שנה'),
         h('button.btn.sm.danger', { onclick: () => r.el.remove() }, 'הסרה'));
       holRows.push(r);
       holBox.appendChild(r.el);
     };
     (s.holidays || []).forEach(addHoliday);
+    // הצעות מלוח החופשות (לא רשמי): המנהל מסמן מה להוסיף
+    const suggestHolidays = async () => {
+      const d = await WS.get('holiday-suggestions');
+      const have = new Set(holRows.filter(r => r.el.isConnected).map(r => r.name.value.trim() + '|' + r.from.value));
+      const rows = d.holidays.map(x => ({ x, cb: h('input', { type: 'checkbox', checked: !have.has(x.name + '|' + x.from) }) }));
+      const m = WS.modal('הצעות מלוח החופשות — ' + d.year, h('div',
+        h('div.alert.warn', '⚠️', h('div', d.note, h('div.small', 'מקורות: ', d.sources.map((u, i) => h('a', { href: u, target: '_blank', rel: 'noopener', style: { marginInlineEnd: '8px' } }, 'מקור ' + (i + 1)))))),
+        h('div.table-wrap', h('table.t',
+          h('tr', h('th', ''), h('th', 'חופשה'), h('th', 'מתאריך'), h('th', 'עד'), h('th', '')),
+          rows.map(({ x, cb }) => h('tr',
+            h('td', cb), h('td', x.name), h('td', WS.fmtDate(x.from)), h('td', WS.fmtDate(x.to)),
+            h('td.small.muted', [x.yearly ? 'כל שנה' : '', x.note || ''].filter(Boolean).join(' · ')))))),
+        h('div.row', { style: { marginTop: '10px' } }, h('div.grow'),
+          h('button.btn.primary', { onclick: () => {
+            const picked = rows.filter(r => r.cb.checked).map(r => r.x);
+            picked.forEach(x => addHoliday({ ...x, time: '10:00' }));
+            m.close();
+            WS.toast(`נוספו ${picked.length} חופשות — לחצו "שמירה" למטה`);
+          } }, 'הוספת המסומנות'))), { wide: true });
+    };
+
     const ok = v => v ? h('span.badge.ok', 'תקין') : h('span.badge.bad', 'לא מחובר');
     page('הגדרות',
       h('div.card', h('h2', 'מצב המערכת'),
@@ -776,7 +799,10 @@
       h('div.card', h('h2', '🏖️ חופשות — שעת התראה אחרת'),
         h('p.small.muted', 'בימים שבטווח, ההתראה לכל הילדים נשלחת בשעה שנקבעה כאן (במקום השעה הרגילה). ימי הלימוד של כל ילד לא משתנים.'),
         holBox,
-        h('button.btn.sm', { style: { marginTop: '8px' }, onclick: () => addHoliday({}) }, '+ חופשה')),
+        h('div.row', { style: { marginTop: '8px' } },
+          h('button.btn.sm', { onclick: () => addHoliday({}) }, '+ חופשה'),
+          h('button.btn.sm', { onclick: (e) => WS.busy(e.currentTarget, suggestHolidays) }, '📅 הצעות מלוח החופשות')),
+        h('p.small.muted', '"כל שנה" — החופשה חוזרת כל שנה באותם תאריכים לועזיים (למשל חופש גדול).')),
       h('div.card', h('h2', 'הודעה יומית למנהל'),
         h('p.small.muted', 'נשלחת רק כשיש מילים שממתינות לאישור, או כשלילד נשארו מילים מאושרות לפחות מ-3 ימים.'),
         h('div.grid3', field('שעת ההודעה', I.prepTime), field('המכשיר שלך להודעות', I.adminNotifyService)),
@@ -792,7 +818,7 @@
       h('div.row', h('button.btn.primary', { onclick: (e) => WS.busy(e.currentTarget, async () => {
         await WS.put('settings', {
           adminNotifyService: I.adminNotifyService.value, prepTime: I.prepTime.value, startDate: I.startDate.value,
-          holidays: holRows.filter(r => r.el.isConnected).map(r => ({ name: r.name.value, from: r.from.value, to: r.to.value, time: r.time.value })),
+          holidays: holRows.filter(r => r.el.isConnected).map(r => ({ name: r.name.value, from: r.from.value, to: r.to.value, time: r.time.value, yearly: r.yearly.checked })),
           aiReview: { enabled: I.aiEnabled.checked, perDay: I.aiPerDay.value, intervalMin: I.aiInterval.value, retryMin: I.aiRetry.value },
           imageSource: I.imageSource.value, notifyReviewDays: I.notifyReviewDays.checked,
           adminUserIds: [...adminChecks.querySelectorAll('input:checked:not(:disabled)')].map(x => x.value)
