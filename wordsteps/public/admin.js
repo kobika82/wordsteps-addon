@@ -8,7 +8,8 @@
   const EX_HE = { mc: 'בחירת תרגום', match: 'התאמת מילים', cloze: 'השלמת משפט', type: 'כתיבת מילה' };
   const LESSON_ST = {
     pending: ['ממתין', 'warn'], approved: ['מוכן', 'ok'], in_progress: ['בתהליך', 'info'],
-    completed: ['הושלם', 'brand'], missed: ['הוחמץ', ''], none: ['אין שיעור', 'bad'], off: ['לא יום לימוד', '']
+    completed: ['הושלם', 'brand'], missed: ['הוחמץ', ''], none: ['אין שיעור', 'bad'], off: ['לא יום לימוד', ''],
+    paused: ['מושהה', ''], soon: ['לפני תאריך ההתחלה', ''], nowords: ['אין מילים מאושרות', 'bad'], later: ['ייבנה בהמשך היום', 'info']
   };
   const WORD_ST = { draft: ['טיוטה', 'warn'], approved: ['מאושרת', 'ok'] };
   const PROG_CLS = { new: '', learning: 'info', needs_reinforcement: 'warn', familiar: 'brand', mastered: 'ok' };
@@ -93,7 +94,9 @@
         h('tr', h('th', 'שם'), h('th', 'השיעור היום'), h('th', 'מילים שנלמדו'), h('th', 'נלמדו היטב'), h('th', 'דורשות חיזוק'), h('th', 'הצלחה (7 ימים)'), h('th', 'התראה אחרונה')),
         d.children.map(c => h('tr.click', { onclick: () => WS.go(c.todayLessonId ? '#/lesson/' + c.todayLessonId : '#/child/' + c.id) },
           h('td', h('b', c.name), c.active ? null : h('span.badge', ' מושהה')),
-          h('td', badge(LESSON_ST, c.todayStatus)),
+          h('td', badge(LESSON_ST, c.todayStatus),
+            c.todayStatus === 'later' ? h('div.small.muted', `השיעור נבנה כשהילד נכנס, או בשעת ההתראה (${c.todayTime})`) : null,
+            c.todayStatus === 'off' ? h('div.small.muted', 'היום לא מסומן בימי הלימוד בפרופיל') : null),
           h('td', String(c.learned)), h('td', String(c.status.mastered || 0)), h('td', String(c.status.needs_reinforcement || 0)),
           h('td', c.weekAccuracy == null ? '—' : c.weekAccuracy + '%'),
           h('td', c.lastNotification ? h('span.badge' + (c.lastNotification.ok ? '.ok' : '.bad'), (c.lastNotification.ok ? 'נשלחה ' : 'נכשלה ') + WS.fmtTime(c.lastNotification.at)) : '—')))))

@@ -75,7 +75,14 @@ function dashboard(store) {
       .map(r => ({ w: r.wordId, en: store.word(r.wordId)?.en || '?', he: store.word(r.wordId)?.he || '', wrong: r.wrong }));
     return {
       id: c.id, name: c.name, active: c.active, level: c.level, stars: c.stars || 0,
-      todayStatus: lessonToday ? L.displayStatus(lessonToday) : (L.isStudyDay(c, date) ? 'none' : 'off'),
+      // כשעוד אין שיעור היום — למה: מושהה / לפני תאריך ההתחלה / לא יום לימוד / אין מילים / ייבנה מאוחר יותר
+      todayStatus: lessonToday ? L.displayStatus(lessonToday)
+        : !c.active ? 'paused'
+        : L.startDate(store) > date ? 'soon'
+        : !L.isStudyDay(c, date) ? 'off'
+        : !L.poolInfo(store, c).available ? 'nowords'
+        : 'later',
+      todayTime: require('./scheduler').notifyTimeFor(store, c, date),
       todayLessonId: lessonToday?.id || null,
       learned: Object.values(progress).filter(r => r.sessions > 0).length,
       status: statusCounts(progress),
