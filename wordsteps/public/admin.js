@@ -6,6 +6,11 @@
   let M; // meta: levels, topics, statusHe
   const DAYS = ['א׳', 'ב׳', 'ג׳', 'ד׳', 'ה׳', 'ו׳', 'ש׳'];
   const EX_HE = { mc: 'בחירת תרגום', match: 'התאמת מילים', cloze: 'השלמת משפט', type: 'כתיבת מילה' };
+  const KINDS = {
+    daily: 'יומית', reminder: 'תזכורת', test: 'בדיקה', admin: 'להורה', 'lesson-done': 'סיום שיעור',
+    'day-summary': 'סיכום יום', penalty: 'קנס על יום שהוחמץ', reward: 'בקשת פרס', 'reward-result': 'תשובה על פרס',
+    'stars-intro': 'פתיחת תוכנית הכוכבים'
+  };
   const LESSON_ST = {
     pending: ['ממתין', 'warn'], approved: ['מוכן', 'ok'], in_progress: ['בתהליך', 'info'],
     completed: ['הושלם', 'brand'], missed: ['הוחמץ', ''], none: ['אין שיעור', 'bad'], off: ['לא יום לימוד', ''],
@@ -328,7 +333,7 @@
       const list = await WS.get('notifications?childId=' + c.id);
       box.innerHTML = '';
       box.appendChild(list.length ? h('div.table-wrap', h('table.t', h('tr', h('th', 'מתי'), h('th', 'סוג'), h('th', 'סטטוס')),
-        list.slice(0, 8).map(n => h('tr', h('td', WS.fmtTime(n.at)), h('td', { daily: 'יומית', reminder: 'תזכורת', test: 'בדיקה' }[n.kind] || n.kind),
+        list.slice(0, 8).map(n => h('tr', h('td', WS.fmtTime(n.at)), h('td', KINDS[n.kind] || n.kind),
           h('td', n.ok ? h('span.badge.ok', 'נשלחה') : h('span.badge.bad', 'נכשלה: ' + n.error)))))) : h('p.small.muted', 'עוד לא נשלחו התראות.'));
     }
     if (!isNew) {
