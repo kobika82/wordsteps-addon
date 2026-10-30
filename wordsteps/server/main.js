@@ -14,6 +14,7 @@ const L = require('./lessons');
 const sources = require('./sources');
 const aireview = require('./aireview');
 const R = require('./reports');
+const RW = require('./rewards');
 const scheduler = require('./scheduler');
 const { HttpError } = U;
 
@@ -203,6 +204,34 @@ route('POST', '/api/child/lesson/:id/complete', 'child', async ({ child, params 
   scheduler.notifyLessonDone(store, child, store.lesson(params.id)).catch(e => console.error('lesson-done notify', e.message));
   return summary;
 });
+
+// ---- פרסים ----
+route('GET', '/api/child/rewards', 'child', async ({ child }) => ({
+  stars: child.stars || 0, earned: child.starsEarned || 0,
+  goal: RW.goalOf(store, child),
+  catalog: RW.catalogFor(store, child),
+  pending: RW.pending(store, child.id)[0] || null,
+  history: store.data.redemptions.filter(r => r.childId === child.id && r.status !== 'pending').slice(0, 10)
+}));
+
+route('POST', '/api/child/rewards/:id/goal', 'child', async ({ child, params }) => {
+  const r = RW.setGoal(store, child, params.id);
+  // פרס הבדיחה לא נקבע כיעד; הממשק מציג מסך ייעודי לפי הדגל הזה
+  return { joke: r.joke, name: r.reward.name, goal: RW.goalOf(store, child) };
+});
+
+route('POST', '/api/child/rewards/:id/request', 'child', async ({ child, params }) => {
+  const rec = RW.request(store, child, params.id);
+  // ההורה הוא שמביא את הפרס בפועל, ולכן הוא צריך לדעת מיד
+  const s = store.data.settings;
+  if (s.adminNotifyService) {
+    scheduler.send(store, { childId: child.id, kind: 'reward', service: s.adminNotifyService,
+      title: 'WordSteps — בקשת פרס',
+      message: `${child.name} ביקש/ה: ${rec.emoji} ${rec.name} (${rec.cost} כוכבים). ממתין לאישור שלך.`
+    }).catch(e => console.error('reward notify', e.message));
+  }
+  return rec;
+});
 route('GET', '/api/child/progress', 'child', async ({ child }) => {
   const prog = store.childProgress(child.id);
   const recs = Object.values(prog).filter(r => r.sessions > 0);
@@ -221,6 +250,54 @@ route('GET', '/api/child/progress', 'child', async ({ child }) => {
 });
 
 // ---- מנהל: לוח בקרה ----
+
+// ---- פרסים: צד ההורה ----
+route('GET', '/api/stars', 'admin', async () => {
+  const c = RW.starsConf(store);
+  const list = RW.rewards(store);
+  return { conf: c,
+    rewards: list.map(r => ({ ...r, lessons: r.joke ? null : RW.lessonsFor(store, r.cost) })),
+    // הפרס הזול ביותר שאינו בדיחה הוא העוגן להצגת התחזית
+    sample: RW.economy(store, Math.min(...list.filter(r => !r.joke).map(r => r.cost), 300)) };
+});
+
+route('PUT', '/api/stars', 'admin', async ({ body }) => {
+  const s2 = store.data.settings;
+  s2.stars = { ...RW.starsConf(store),
+    base: int(body.base, 0, 50, 2), max: int(body.max, 1, 200, 10),
+    streakBonus: int(body.streakBonus, 0, 20, 0), streakCap: 5,
+    missPenalty: int(body.missPenalty, 0, 100, 5) };
+  if (Array.isArray(body.rewards)) {
+    s2.rewards = body.rewards.filter(r => r && String(r.name || '').trim()).slice(0, 40).map(r => ({
+      id: Number(r.id) || Date.now(), emoji: String(r.emoji || '🎁').slice(0, 4),
+      name: String(r.name).trim().slice(0, 60), cost: int(r.cost, 1, 999999, 50),
+      active: r.active !== false, joke: !!r.joke
+    }));
+  }
+  store.save();
+  return { ok: true, conf: RW.starsConf(store) };
+});
+
+route('GET', '/api/redemptions', 'admin', async () => ({
+  pending: RW.pending(store).map(r => ({ ...r, childName: (store.data.children.find(c => c.id === r.childId) || {}).name })),
+  recent: store.data.redemptions.filter(r => r.status !== 'pending').slice(0, 30)
+    .map(r => ({ ...r, childName: (store.data.children.find(c => c.id === r.childId) || {}).name }))
+}));
+
+route('POST', '/api/redemptions/:id/decide', 'admin', async ({ params, body }) => {
+  const rec = RW.decide(store, params.id, !!body.approve);
+  const child = store.data.children.find(c => c.id === rec.childId);
+  // הילד צריך לדעת גם כשאישרו וגם כשלא, אחרת הבקשה נעלמת בלי הסבר
+  if (child && child.notifyService) {
+    scheduler.send(store, { childId: child.id, kind: 'reward-result', service: child.notifyService,
+      title: 'WordSteps 🎁',
+      message: rec.status === 'given'
+        ? `הפרס אושר! ${rec.emoji} ${rec.name} מחכה לך 🎉`
+        : `הבקשה ל${rec.name} לא אושרה הפעם, והכוכבים חזרו אליך.`
+    }).catch(e => console.error('reward result notify', e.message));
+  }
+  return rec;
+});
 route('GET', '/api/dashboard', 'admin', async () => ({ ...R.dashboard(store), status: await systemStatus() }));
 route('POST', '/api/notices/dismiss-all', 'admin', async () => {
   for (const n of store.data.adminNotices) n.dismissed = true;
@@ -497,6 +574,16 @@ route('PUT', '/api/settings', 'admin', async ({ body }) => {
   if ('notifyReviewDays' in body) s.notifyReviewDays = !!body.notifyReviewDays;
   if ('notifyAdminLessonDone' in body) s.notifyAdminLessonDone = !!body.notifyAdminLessonDone;
   if ('notifyAdminDaySummary' in body) s.notifyAdminDaySummary = !!body.notifyAdminDaySummary;
+  if (body.stars && typeof body.stars === 'object') {
+    s.stars = { base: int(body.stars.base, 0, 50, 3), max: int(body.stars.max, 1, 200, 12),
+      streakBonus: int(body.stars.streakBonus, 0, 20, 2), streakCap: 5 };
+  }
+  if (Array.isArray(body.rewards)) {
+    s.rewards = body.rewards.filter(r => r && String(r.name || '').trim()).slice(0, 40).map(r => ({
+      id: Number(r.id) || Date.now(), emoji: String(r.emoji || '🎁').slice(0, 4),
+      name: String(r.name).trim().slice(0, 60), cost: int(r.cost, 1, 9999, 50), active: r.active !== false
+    }));
+  }
   if (typeof body.summaryTime === 'string' && /^[0-9]{2}:[0-9]{2}$/.test(body.summaryTime)) s.summaryTime = body.summaryTime;
   if (body.aiReview && typeof body.aiReview === 'object') {
     const a = body.aiReview;

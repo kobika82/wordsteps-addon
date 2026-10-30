@@ -9,7 +9,7 @@ const KEEP_BACKUPS = 30;
 function emptyData() {
   return {
     version: 1,
-    seq: { child: 0, word: 0, lesson: 0, item: 0, answer: 0, notif: 0 },
+    seq: { child: 0, word: 0, lesson: 0, item: 0, answer: 0, notif: 0, redemption: 0 },
     settings: {
       adminNotifyService: '',     // notify.mobile_app_* של המנהל
       prepTime: '19:00',          // שעת הכנת שיעורי המחר והודעה למנהל
@@ -20,6 +20,13 @@ function emptyData() {
       notifyAdminDaySummary: true,  // סיכום יומי: מי למד ומי לא
       summaryTime: '20:30',         // שעת הסיכום היומי - אחרי שהיום נגמר בפועל
       adminUserIds: [],           // מנהלים נוספים שהוגדרו מתוך האפליקציה
+      stars: null,                // נוסחת הכוכבים; null = ברירת המחדל ב-rewards.js
+      rewards: [                  // קטלוג הפרסים; ההורה יכול לשנות הכול
+        { id: 1, emoji: '☕', name: 'קפה ומאפה', cost: 60, active: true },
+        { id: 2, emoji: '🍰', name: 'קינוח מגניב', cost: 90, active: true },
+        { id: 3, emoji: '🚕', name: 'טיול מגניב', cost: 250, active: true },
+        { id: 4, emoji: '📱', name: 'אייפון חדש', cost: 99999, active: true, joke: true }
+      ],
       migratedArasaac: true,
       migratedAutoLessons: true,
       migratedNotices: true
@@ -31,7 +38,8 @@ function emptyData() {
     progress: {},       // { childId: { wordId: {...} } }
     answers: [],
     notifications: [],
-    adminNotices: []    // הודעות מערכת למנהל (למשל: אין מילים חדשות מתאימות)
+    adminNotices: [],   // הודעות מערכת למנהל (למשל: אין מילים חדשות מתאימות)
+    redemptions: []     // בקשות פרס: pending / given / denied
   };
 }
 

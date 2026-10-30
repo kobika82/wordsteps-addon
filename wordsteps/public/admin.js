@@ -72,10 +72,103 @@
       h('div.row', { style: { marginTop: '10px' } }, h('span.small.muted', 'במאגר לפי רמה:'),
         d.stock.map(x => h('span.chip', `${M.levels[x.level]}: ${x.approved} מאושרות` + (x.drafts ? ` · ${x.drafts} ממתינות` : '')))));
   }
+
+  // ---------- תוכנית הכוכבים ----------
+  // הכרטיס מראה את הפרמטרים ואת המשמעות שלהם באותו מסך. המספר שההורה
+  // באמת שואל עליו הוא "כמה שיעורים עומדים מאחורי הפרס", ולא כמה כוכבים.
+  async function starsCard() {
+    const d = await WS.get('stars');
+    const box = h('div.card');
+    const I = {
+      max: h('input', { type: 'number', min: 1, max: 200, value: d.conf.max, style: { width: '80px' } }),
+      base: h('input', { type: 'number', min: 0, max: 50, value: d.conf.base, style: { width: '80px' } }),
+      streak: h('input', { type: 'number', min: 0, max: 20, value: d.conf.streakBonus, style: { width: '80px' } }),
+      miss: h('input', { type: 'number', min: 0, max: 100, value: d.conf.missPenalty, style: { width: '80px' } })
+    };
+    const rows = [];
+    const rewBox = h('div');
+    function addRow(r) {
+      const row = {
+        id: r.id || Date.now() + Math.floor(Math.random() * 999), joke: !!r.joke,
+        emoji: h('input', { value: r.emoji || '🎁', style: { width: '52px', textAlign: 'center' } }),
+        name: h('input', { value: r.name || '', placeholder: 'שם הפרס' }),
+        cost: h('input', { type: 'number', min: 1, max: 999999, value: r.cost || 100, style: { width: '96px' } }),
+        act: h('input', { type: 'checkbox', checked: r.active !== false })
+      };
+      const note = h('span.small.muted');
+      const refresh = () => {
+        const n = Math.ceil((+row.cost.value || 0) / Math.max(1, +I.max.value));
+        note.textContent = row.joke ? 'פרס בדיחה' : '≈ ' + n + ' שיעורים מושלמים';
+      };
+      row.cost.oninput = refresh; I.max.addEventListener('input', refresh); refresh();
+      row.el = h('div.row', { style: { marginBottom: '6px' } },
+        row.emoji, row.name, row.cost, h('span.small.muted', 'כוכבים'), note,
+        h('label.checks', row.act, ' פעיל'),
+        row.joke ? h('span.chip', '😄') : h('button.btn.sm.danger', { onclick: () => row.el.remove() }, 'הסר'));
+      rows.push(row); rewBox.appendChild(row.el);
+    }
+    d.rewards.forEach(addRow);
+
+    const table = h('div.table-wrap');
+    const drawTable = () => {
+      const per = (pct) => (+I.base.value) + Math.round(((+I.max.value) - (+I.base.value)) * (pct / 100));
+      const cheapest = Math.min(...d.rewards.filter(r => !r.joke).map(r => +r.cost), 300);
+      table.innerHTML = '';
+      table.appendChild(h('table.t',
+        h('tr', h('th', 'אחוז הצלחה'), h('th', 'כוכבים לשיעור'), h('th', 'שיעורים לפרס הזול ביותר')),
+        ...[100, 90, 80, 70, 60, 50].map(p => h('tr',
+          h('td', p + '%'), h('td', String(per(p))),
+          h('td', per(p) > 0 ? String(Math.ceil(cheapest / per(p))) : '—')))));
+    };
+    [I.base, I.max].forEach(x => x.addEventListener('input', drawTable));
+    drawTable();
+
+    box.append(
+      h('h2', '⭐ תוכנית הכוכבים'),
+      h('p.small.muted', 'הכוכבים ניתנים לפי שיעור ההצלחה. "מקסימום" הוא גם יחידת החשבון: פרס של 300 כוכבים הוא 30 שיעורים מושלמים כשהמקסימום 10.'),
+      h('div.row', { style: { marginTop: '10px', flexWrap: 'wrap', gap: '14px' } },
+        h('label.checks', 'מקסימום ב-100%', I.max),
+        h('label.checks', 'בסיס על השלמה', I.base),
+        h('label.checks', 'בונוס לכל יום רצוף', I.streak),
+        h('label.checks', 'קנס על שיעור שהוחמץ', I.miss)),
+      h('p.small.muted', 'בונוס רצף מקצר את הדרך לפרס, ולכן הוא 0 כברירת מחדל — אחרת המספר "שיעורים לפרס" כבר לא מדויק. הקנס לא מוריד את היתרה מתחת לאפס.'),
+      table,
+      h('h3', { style: { marginTop: '14px' } }, 'הפרסים'),
+      rewBox,
+      h('div.row',
+        h('button.btn.sm', { onclick: () => addRow({ emoji: '🎁', name: '', cost: 100 }) }, '➕ הוסף פרס'),
+        h('span.grow'),
+        h('button.btn.primary', { onclick: (e) => WS.busy(e.currentTarget, async () => {
+          await WS.put('stars', {
+            max: +I.max.value, base: +I.base.value, streakBonus: +I.streak.value, missPenalty: +I.miss.value,
+            rewards: rows.filter(r => r.el.isConnected && r.name.value.trim()).map(r => ({
+              id: r.id, emoji: r.emoji.value, name: r.name.value.trim(),
+              cost: +r.cost.value, active: r.act.checked, joke: r.joke }))
+          });
+          WS.toast('נשמר ✓'); dashboard();
+        }) }, 'שמירה')));
+    return box;
+  }
+
   async function dashboard() {
     const d = await WS.get('dashboard');
     const alerts = [];
     if (!d.status.ha.connected) alerts.push(h('div.alert.warn', '⚠️', h('div', 'אין חיבור ל-Home Assistant — התראות לא יישלחו.')));
+    const starsBox = await starsCard().catch(() => null);
+    const rd = await WS.get('redemptions').catch(() => ({ pending: [], recent: [] }));
+    for (const r of rd.pending) {
+      alerts.push(h('div.alert', '🎁',
+        h('div.grow', h('b', r.childName), ` מבקש/ת: ${r.emoji} ${r.name} — ${r.cost} כוכבים`),
+        h('button.btn.sm.primary', { onclick: async (e) => {
+          await WS.busy(e.currentTarget, () => WS.post(`redemptions/${r.id}/decide`, { approve: true }));
+          WS.toast('אושר ✓'); dashboard();
+        } }, 'אישור'),
+        h('button.btn.sm.ghost', { onclick: async (e) => {
+          if (!confirm('לדחות את הבקשה? הכוכבים יוחזרו לילד.')) return;
+          await WS.busy(e.currentTarget, () => WS.post(`redemptions/${r.id}/decide`, { approve: false }));
+          WS.toast('נדחה, הכוכבים הוחזרו'); dashboard();
+        } }, 'דחייה')));
+    }
     if (d.notices.length > 1) {
       alerts.push(h('div.row', { style: { justifyContent: 'flex-end', marginBottom: '6px' } },
         h('button.btn.sm', { onclick: async () => { await WS.post('notices/dismiss-all'); dashboard(); } }, `הסתרת כל ההודעות (${d.notices.length})`)));
@@ -105,7 +198,7 @@
     const hardCard = hard.length ? h('div.card', h('h2', '⚠️ מילים קשות'),
       hard.map(c => h('div', { style: { marginBottom: '8px' } }, h('b', c.name + ': '),
         h('span.chips', c.hard.map(w => h('span.chip', en(w.en), ` — ${w.he} (${w.wrong} טעויות)`)))))) : null;
-    page('לוח בקרה', ...alerts, stockCard(d), approveCard, kids, hardCard,
+    page('לוח בקרה', ...alerts, stockCard(d), approveCard, kids, hardCard, starsBox,
       h('p.small.muted', `מאגר המילים: ${d.bank.total} מילים, ${d.bank.approved} מאושרות. אזור זמן: ${d.status.timeZone}.`));
   }
 
@@ -744,11 +837,34 @@
       notifyReviewDays: h('input', { type: 'checkbox', checked: s.notifyReviewDays }),
       notifyAdminLessonDone: h('input', { type: 'checkbox', checked: s.notifyAdminLessonDone !== false }),
       notifyAdminDaySummary: h('input', { type: 'checkbox', checked: s.notifyAdminDaySummary !== false }),
-      summaryTime: h('input', { type: 'time', value: s.summaryTime || '20:30' })
+      summaryTime: h('input', { type: 'time', value: s.summaryTime || '20:30' }),
+      starBase: h('input', { type: 'number', min: 0, max: 50, value: (s.stars || {}).base ?? 3 }),
+      starMax: h('input', { type: 'number', min: 1, max: 200, value: (s.stars || {}).max ?? 12 }),
+      starStreak: h('input', { type: 'number', min: 0, max: 20, value: (s.stars || {}).streakBonus ?? 2 })
     };
     const adminChecks = h('div.checks', usersR.users.map(u => h('label',
       h('input', { type: 'checkbox', name: 'adm', value: u.id, checked: u.isAdmin || s.adminUserIds.includes(u.id), disabled: u.isAdmin }),
       u.name + (u.isAdmin ? ' (מנהל ב-HA)' : ''))));
+    // קטלוג הפרסים: שם, מחיר ואימוג'י. אותו דפוס כמו טבלת החופשות.
+    const rewBox = h('div');
+    const rewRows = [];
+    function addRew(r) {
+      const row = {
+        id: r.id || Date.now() + Math.floor(Math.random() * 999),
+        emoji: h('input', { value: r.emoji || '🎁', style: { width: '56px', textAlign: 'center' } }),
+        name: h('input', { value: r.name || '', placeholder: 'שם הפרס' }),
+        cost: h('input', { type: 'number', min: 1, max: 9999, value: r.cost || 50, style: { width: '90px' } }),
+        act: h('input', { type: 'checkbox', checked: r.active !== false })
+      };
+      row.el = h('div.row', { style: { marginBottom: '6px' } },
+        row.emoji, row.name, h('span.small.muted', 'כוכבים'), row.cost,
+        h('label.checks', row.act, ' פעיל'),
+        h('button.btn.sm.danger', { onclick: () => row.el.remove() }, 'הסר'));
+      rewRows.push(row);
+      rewBox.appendChild(row.el);
+    }
+    (s.rewards || []).forEach(addRew);
+    if (!(s.rewards || []).length) addRew({ emoji: '🍦', name: 'גלידה', cost: 25 });
     // חופשות: שם, מתאריך, עד תאריך, שעת התראה
     const holBox = h('div');
     const holRows = [];
@@ -833,6 +949,16 @@
         h('label.checks', { style: { marginTop: '8px' } }, I.notifyAdminDaySummary, ' לשלוח לי סיכום יומי: מי למד ומי לא'),
         h('div.grid3', { style: { marginTop: '10px' } }, field('שעת הסיכום היומי', I.summaryTime)),
         h('p.small.muted', "הסיכום נשלח אחרי שהיום נגמר, כי רק אז אפשר לדעת מי החמיץ. הוא נשלח גם כשכולם למדו, כי \"הכול בוצע\" הוא מידע ושתיקה אינה.")),
+      h('div.card', h('h2', '🎁 כוכבים ופרסים'),
+        h('p.small.muted', 'הכוכבים ניתנים לפי שיעור ההצלחה בשיעור, לא לפי מספר התשובות — אחרת שיעור ארוך שווה יותר משיעור טוב.'),
+        h('div.grid3', { style: { marginTop: '10px' } },
+          field('כוכבי בסיס (על עצם ההשלמה)', I.starBase),
+          field('מקסימום ב-100% הצלחה', I.starMax),
+          field('בונוס לכל יום רצוף', I.starStreak)),
+        h('p.small.muted', { style: { marginTop: '6px' } }, 'הבסיס ניתן תמיד, גם ביום גרוע: תוכנית שמענישה על יום אחד חלש מפסיקה להיות תמריץ.'),
+        h('h3', { style: { marginTop: '14px' } }, 'קטלוג הפרסים'),
+        rewBox,
+        h('div.row', h('button.btn.sm', { onclick: () => addRew({}) }, '➕ הוסף פרס'))),
       h('div.card', h('h2', 'מנהלים'), h('p.small.muted', 'מנהלי Home Assistant הם תמיד מנהלים כאן. אפשר להוסיף משתמשים נוספים:'), adminChecks),
       h('div.row', h('button.btn.primary', { onclick: (e) => WS.busy(e.currentTarget, async () => {
         await WS.put('settings', {
@@ -842,6 +968,9 @@
           imageSource: I.imageSource.value, notifyReviewDays: I.notifyReviewDays.checked,
           notifyAdminLessonDone: I.notifyAdminLessonDone.checked,
           notifyAdminDaySummary: I.notifyAdminDaySummary.checked, summaryTime: I.summaryTime.value,
+          stars: { base: +I.starBase.value, max: +I.starMax.value, streakBonus: +I.starStreak.value },
+          rewards: rewRows.filter(r => r.el.isConnected && r.name.value.trim())
+            .map(r => ({ id: r.id, emoji: r.emoji.value, name: r.name.value.trim(), cost: +r.cost.value, active: r.act.checked })),
           adminUserIds: [...adminChecks.querySelectorAll('input:checked:not(:disabled)')].map(x => x.value)
         });
         WS.toast('נשמר ✓');

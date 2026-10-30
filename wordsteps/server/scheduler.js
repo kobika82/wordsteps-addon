@@ -5,6 +5,7 @@ const { localParts, toMinutes, now, dowOf } = require('./util');
 const ha = require('./ha');
 const L = require('./lessons');
 const aireview = require('./aireview');
+const rewards = require('./rewards');
 
 const NOTIFY_WINDOW_MIN = 240;   // לא שולחים התראה יומית יותר מ-4 שעות אחרי השעה שנקבעה
 const RETRY_MIN = 10;
@@ -153,6 +154,34 @@ function daySummary(store, date) {
   return { title: `WordSteps — סיכום ${done ? `${done} למדו` : ''}${done && missed ? ', ' : ''}${missed ? `${missed} לא למדו` : ''}`.trim(), message: lines.join('\n'), done, missed };
 }
 
+
+async function penaltyTick(store, p) {
+  const s = store.data.settings;
+  if (s.lastPenaltyDate === p.date) return;
+  const at = toMinutes(s.summaryTime || '20:30');
+  if (at == null || p.minutes < at) return;
+  s.lastPenaltyDate = p.date;
+  const hit = [];
+  for (const c of store.data.children) {
+    if (!c.active || !L.isStudyDay(c, p.date)) continue;
+    const done = store.data.lessons.some((l) => l.childId === c.id && l.date === p.date
+      && l.kind === 'daily' && l.status === 'completed');
+    if (done) continue;
+    // אין מילים מאושרות זו אשמת ההורה, לא של הילד
+    if (!L.poolInfo(store, c).available) continue;
+    const lost = rewards.applyMissPenalty(store, c);
+    if (lost) hit.push({ child: c, lost });
+  }
+  store.save();
+  for (const x of hit) {
+    if (!x.child.notifyService) continue;
+    await send(store, { childId: x.child.id, kind: 'penalty', service: x.child.notifyService,
+      title: 'WordSteps ⭐',
+      message: `היום לא היה שיעור, ולכן ירדו ${x.lost} כוכבים. מחר אפשר להרוויח אותם בחזרה 🙂`
+    });
+  }
+  return hit;
+}
 async function summaryTick(store, p) {
   const s = store.data.settings;
   if (!s.notifyAdminDaySummary || !s.adminNotifyService) return;
@@ -195,7 +224,8 @@ async function tick(store) {
   try {
     const p = localParts();
     await prepTick(store, p);
-    try { await summaryTick(store, p); } catch (e) { console.error("summary", e.message); }
+    try { await penaltyTick(store, p); } catch (e) { console.error('penalty', e.message); }
+    try { await summaryTick(store, p); } catch (e) { console.error('summary', e.message); }
     try { await aireview.tick(store); } catch (e) { console.error('ai review', e.message); }
     for (const child of store.data.children) {
       try { await childTick(store, child, p); } catch (e) { console.error('notify tick', child.id, e.message); }
@@ -209,4 +239,4 @@ function start(store) {
 }
 
 module.exports = { start, tick, send, setPanelUrl, getPanelUrl, dailyMessage, adminDigest, notifyTimeFor, holidayOn,
-  notifyLessonDone, daySummary, lessonDoneMessage };
+  notifyLessonDone, daySummary, lessonDoneMessage, penaltyTick };

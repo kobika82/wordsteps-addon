@@ -13,13 +13,15 @@
     const top = h('div.kid-top', h('div.kid-logo', '📚 WordSteps'), h('div.stars', '⭐ ', String(WS.me.child?.stars ?? 0)));
     const nav = h('nav.kid-nav',
       h('a' + (tab === 'home' ? '.on' : ''), { href: '#/' }, '🏠 בית'),
-      h('a' + (tab === 'progress' ? '.on' : ''), { href: '#/progress' }, '📈 ההתקדמות שלי'));
+      h('a' + (tab === 'progress' ? '.on' : ''), { href: '#/progress' }, '📈 ההתקדמות שלי'),
+      h('a' + (tab === 'rewards' ? '.on' : ''), { href: '#/rewards' }, '🎁 פרסים'));
     WS.mount(h('div.kid-wrap', top, content), nav);
   }
 
   Child.init = function () {
     WS.route('/', home);
     WS.route('/progress', progress);
+    WS.route('/rewards', rewards);
     WS.route('/lesson', () => WS.go('#/'));
   };
 
@@ -98,6 +100,111 @@
             h('div.wlist', ws.map(w => h('div.w', h('span', w.emoji || '•'), h('span.grow', en(w.en), ' — ', w.he), WS.speakBtn(w.en)))));
         })) : null
     ), 'progress');
+  }
+
+
+  // מסך הפרסים. הפרס שכמעט בהישג יד מוצג ראשון עם סרגל התקדמות, כי זה
+  // מה שמניע - לא רשימת מחירים.
+  // ציור סרט למסך הבדיחה. SVG פנימי, בלי תלות בקובץ חיצוני.
+  function movieArt() {
+    const ns = 'http://www.w3.org/2000/svg';
+    const el = document.createElementNS(ns, 'svg');
+    el.setAttribute('viewBox', '0 0 240 150');
+    el.setAttribute('width', '240');
+    el.innerHTML = [
+      '<rect x="18" y="34" width="150" height="96" rx="10" fill="#1f2937"/>',
+      '<rect x="30" y="46" width="126" height="72" rx="5" fill="#374151"/>',
+      '<g fill="#fbbf24">',
+      '<circle cx="24" cy="46" r="4"/><circle cx="24" cy="66" r="4"/><circle cx="24" cy="86" r="4"/>',
+      '<circle cx="24" cy="106" r="4"/><circle cx="24" cy="126" r="4"/>',
+      '<circle cx="162" cy="46" r="4"/><circle cx="162" cy="66" r="4"/><circle cx="162" cy="86" r="4"/>',
+      '<circle cx="162" cy="106" r="4"/><circle cx="162" cy="126" r="4"/></g>',
+      '<path d="M78 66 L112 82 L78 98 Z" fill="#fbbf24"/>',
+      '<rect x="14" y="16" width="158" height="22" rx="5" fill="#111827" transform="rotate(-8 93 27)"/>',
+      '<g fill="#f9fafb" transform="rotate(-8 93 27)">',
+      '<rect x="24" y="20" width="14" height="14" transform="skewX(-12)"/>',
+      '<rect x="56" y="20" width="14" height="14" transform="skewX(-12)"/>',
+      '<rect x="88" y="20" width="14" height="14" transform="skewX(-12)"/>',
+      '<rect x="120" y="20" width="14" height="14" transform="skewX(-12)"/></g>',
+      '<circle cx="196" cy="98" r="30" fill="#fde68a"/><circle cx="196" cy="98" r="22" fill="#f59e0b"/>',
+      '<circle cx="196" cy="98" r="6" fill="#78350f"/>',
+      '<g fill="#78350f"><circle cx="196" cy="82" r="4"/><circle cx="196" cy="114" r="4"/>',
+      '<circle cx="180" cy="98" r="4"/><circle cx="212" cy="98" r="4"/></g>'
+    ].join('');
+    return el;
+  }
+
+  // "את חיה בסרט" לפי המין של הילד, כדי שלא יקבל ניסוח של מישהו אחר
+  function dreamLine(name, g) {
+    const v = g === 'f' ? 'את חיה בסרט' : g === 'm' ? 'אתה חי בסרט' : 'אתם חיים בסרט';
+    return name + ' — ' + v + '.';
+  }
+
+  function dreamScreen(name, gender, back) {
+    shell(h('div.dream',
+      h('div.hello', '🎬'),
+      h('h2', dreamLine(name, gender)),
+      h('div.art', movieArt()),
+      h('p', 'נא לבחור פרס אחר 🙂'),
+      h('button.big-btn', { onclick: back }, 'חזרה לפרסים')
+    ), 'rewards');
+  }
+
+  // מסך הפרסים. המודל: בוחרים יעד מראש, וצוברים לעברו. הסרגל הוא העיקר -
+  // מספר כוכבים לבדו לא אומר לילד כמה נשאר.
+  async function rewards() {
+    const d = await WS.get('child/rewards');
+    WS.me.child.stars = d.stars;
+    const me = WS.me.child || {};
+
+    const choose = async (c) => {
+      const r = await WS.post(`child/rewards/${c.id}/goal`, {});
+      if (r.joke) return dreamScreen(me.name, me.gender, rewards);
+      rewards();
+    };
+
+    const claim = async () => {
+      if (!confirm(`לממש את ${d.goal.emoji} ${d.goal.name}?`)) return;
+      try { await WS.post(`child/rewards/${d.goal.id}/request`, {}); rewards(); }
+      catch (e) { WS.toast(e.message || 'לא הצלחנו', true); }
+    };
+
+    shell(h('div',
+      h('div.hello', 'הפרסים שלי 🎁'),
+      h('div.kid-card',
+        h('div.sum-tiles',
+          h('div', h('b', '⭐ ' + d.stars), 'כוכבים עכשיו'),
+          h('div', h('b', String(d.earned)), 'נצברו בסך הכול'))),
+
+      d.pending ? h('div.kid-card',
+        h('h3', '⏳ ממתין לאישור'),
+        h('p', `${d.pending.emoji} ${d.pending.name} — ביקשת, וההורים צריכים לאשר.`)) : null,
+
+      d.goal && !d.pending ? h('div.kid-card.goal',
+        h('h3', 'היעד שלי'),
+        h('div.goal-row', h('span.emoji', d.goal.emoji), h('span.grow', h('b', d.goal.name)),
+          h('span', '⭐ ' + d.stars + ' / ' + d.goal.cost)),
+        h('div.bar', h('i', { style: { width: d.goal.pct + '%' } })),
+        d.goal.reached
+          ? h('div', { style: { marginTop: '10px' } },
+              h('p', 'הגעת! 🎉'),
+              h('button.big-btn', { onclick: claim }, 'אני רוצה את הפרס'))
+          : h('p.muted', { style: { marginTop: '8px' } }, `עוד ${d.goal.missing} כוכבים`)) : null,
+
+      h('div.kid-card',
+        h('h3', d.goal ? 'להחליף יעד' : 'איזה פרס אני רוצה?'),
+        d.catalog.length ? h('div.rewards', d.catalog.map(c => h('button.reward' + (c.goal ? '.on' : ''),
+          { onclick: () => choose(c) },
+          h('span.emoji', c.emoji), h('span.name', c.name),
+          h('span.cost', '⭐ ' + (c.cost > 9000 ? '∞' : c.cost)))))
+          : h('p.muted', 'ההורים עוד לא הגדירו פרסים.')),
+
+      d.history.filter(r => r.status === 'given').length ? h('div.kid-card',
+        h('h3', 'פרסים שקיבלתי'),
+        h('div.wlist', d.history.filter(r => r.status === 'given').map(r =>
+          h('div.w', h('span', r.emoji), h('span.grow', r.name),
+            h('span.muted', new Date(r.at).toLocaleDateString('he-IL')))))) : null
+    ), 'rewards');
   }
 
   // ---------- נגן השיעור ----------

@@ -4,6 +4,7 @@
 const { today, addDays, dowOf, shuffle, normalizeAnswer, levenshtein, HttpError, now } = require('./util');
 const { pickContent, sanitizeContent, missingFields, DEFAULT_EXERCISES, EXERCISE_TYPES, LEVELS } = require('./content');
 const srs = require('./srs');
+const rewards = require('./rewards');
 const gemini = require('./gemini');
 const images = require('./images');
 const sources = require('./sources');
@@ -489,15 +490,19 @@ function complete(store, child, lessonId) {
   }
   const learnedAfter = Object.values(progress).filter(r => r.sessions > 0).length;
   const correct = first.filter(a => a.correct).length;
-  const stars = correct + (lesson.kind === 'daily' ? 5 : 2);
+  const pct = first.length ? Math.round((correct / first.length) * 100) : 100;
+  const streak = lesson.kind === 'daily' ? rewards.streakOf(store, child, date) + 1 : 0;
+  const award = rewards.starsForLesson(store, pct, streak);
+  const stars = lesson.kind === 'daily' ? award.stars : Math.max(1, Math.round(award.stars / 2));
   child.stars = (child.stars || 0) + stars;
+  child.starsEarned = (child.starsEarned || 0) + stars;
   const milestone = MILESTONES.filter(m => learnedBefore < m && learnedAfter >= m).pop() || null;
   lesson.summary = {
     newWords: lesson.items.filter(i => i.role === 'new').length,
     practiced: lesson.items.length,
-    correct, total: first.length,
-    pct: first.length ? Math.round((correct / first.length) * 100) : 100,
-    weak, stars, totalStars: child.stars, milestone, learnedTotal: learnedAfter,
+    correct, total: first.length, pct,
+    weak, stars, starsDetail: award, streak, totalStars: child.stars,
+    starsEarned: child.starsEarned, milestone, learnedTotal: learnedAfter,
     message: CHEERS[Math.floor(Math.random() * CHEERS.length)]
   };
   lesson.status = 'completed';
