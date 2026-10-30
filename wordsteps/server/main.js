@@ -193,7 +193,8 @@ route('GET', '/api/me', 'any', async (ctx) => {
 route('GET', '/api/child/home', 'child', async ({ child }) => {
   const prog = store.childProgress(child.id);
   const learned = Object.values(prog).filter(r => r.sessions > 0).length;
-  return { child: { name: child.name, gender: child.gender, stars: child.stars || 0 }, learned, ...L.homeState(store, child) };
+  return { child: { name: child.name, gender: child.gender, stars: child.stars || 0 },
+    starsIntro: !!child.starsIntroSentAt && !child.starsIntroSeen, learned, ...L.homeState(store, child) };
 });
 route('POST', '/api/child/lesson/start', 'child', async ({ child, body }) => L.startLesson(store, child, body));
 route('POST', '/api/child/lesson/:id/answer', 'child', async ({ child, params, body }) => L.answer(store, child, params.id, body.step, body));
@@ -276,6 +277,34 @@ route('PUT', '/api/stars', 'admin', async ({ body }) => {
   }
   store.save();
   return { ok: true, conf: RW.starsConf(store) };
+});
+
+// השקת תוכנית הכוכבים: הודעה לכל ילד פעיל, פעם אחת. הסימון נשמר על הילד
+// כדי שלחיצה שנייה לא תציף אותם באותה הודעה.
+route('POST', '/api/stars/launch', 'admin', async ({ body }) => {
+  const sent = [];
+  for (const c of store.data.children) {
+    if (!c.active || !c.notifyService) continue;
+    if (c.starsIntroSentAt && !body.again) continue;
+    const g = c.gender;
+    const verb = g === 'f' ? 'תוכלי' : g === 'm' ? 'תוכל' : 'תוכלו';
+    const r = await scheduler.send(store, {
+      childId: c.id, kind: 'stars-intro', service: c.notifyService,
+      title: 'WordSteps ⭐ חדש!',
+      message: `${c.name}, מהיום כל שיעור מזכה בכוכבים ⭐ ${verb} לאסוף אותם ולבחור פרס 🎁 אפשר להיכנס ולראות איך זה עובד.`
+    });
+    if (r.ok) { c.starsIntroSentAt = r.at; c.starsIntroSeen = false; }
+    sent.push({ name: c.name, ok: r.ok, error: r.error });
+  }
+  store.save();
+  return { sent };
+});
+
+// הילד מסמן שראה את מסך ההסבר, כדי שלא יקפוץ שוב בכל כניסה
+route('POST', '/api/child/stars-intro/seen', 'child', async ({ child }) => {
+  child.starsIntroSeen = true;
+  store.save();
+  return { ok: true };
 });
 
 route('GET', '/api/redemptions', 'admin', async () => ({

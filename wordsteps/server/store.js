@@ -66,6 +66,14 @@ class Store {
         data.lessons = data.lessons.filter(l => !(l.kind === 'daily' && (l.status === 'pending' || l.status === 'approved')));
         data.settings.migratedAutoLessons = true;
       }
+      // 0.5.0: קטלוג פרסים ראשוני. התקנה קיימת שמרה rewards ריק, ולכן מיזוג
+      // ההגדרות לא מביא את ברירת המחדל - צריך למלא אותו במפורש, פעם אחת.
+      if (!(d.settings && d.settings.migratedRewards)) {
+        if (!Array.isArray(data.settings.rewards) || !data.settings.rewards.length) {
+          data.settings.rewards = emptyData().settings.rewards;
+        }
+        data.settings.migratedRewards = true;
+      }
       // 0.2.2: ההודעות "אין מספיק מילים לשיעור <תאריך>" שייכות לשיטה הישנה של הכנה מראש — נסגרות
       if (!(d.settings && d.settings.migratedNotices)) {
         for (const n of data.adminNotices || []) if (/אין מספיק מילים חדשות מתאימות לשיעור/.test(n.text)) n.dismissed = true;

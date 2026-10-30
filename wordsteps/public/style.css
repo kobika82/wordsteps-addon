@@ -200,3 +200,7 @@ body.kid { background: var(--kid-bg); background-attachment: fixed; min-height: 
 .dream { text-align: center; padding: 20px 10px; }
 .dream .art { margin: 16px auto; }
 .dream h2 { font-size: 24px; margin: 10px 0; }
+.intro { text-align: center; }
+.intro .big { font-size: 19px; font-weight: 800; margin: 4px 0 10px; }
+.intro-list { text-align: right; margin: 0; padding-inline-start: 22px; line-height: 1.9; }
+.big-btn.ghost { background: #fff; color: #374151; border: 2px solid #e5e7eb; }

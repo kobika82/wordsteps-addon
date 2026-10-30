@@ -22,12 +22,16 @@
     WS.route('/', home);
     WS.route('/progress', progress);
     WS.route('/rewards', rewards);
+    WS.route('/stars-intro', starsIntro);
     WS.route('/lesson', () => WS.go('#/'));
   };
 
   async function home() {
     const d = await WS.get('child/home');
     WS.me.child.stars = d.child.stars;
+    WS.me.child.gender = d.child.gender;
+    // ההשקה נשלחה והילד עוד לא ראה את ההסבר — מקפיצים אותו פעם אחת
+    if (d.starsIntro) return starsIntro();
     let card;
     const startBtn = (label, cls, body) => h('button.big-btn' + cls, {
       onclick: (e) => WS.busy(e.currentTarget, async () => play(await WS.post('child/lesson/start', body)))
@@ -105,6 +109,41 @@
 
   // מסך הפרסים. הפרס שכמעט בהישג יד מוצג ראשון עם סרגל התקדמות, כי זה
   // מה שמניע - לא רשימת מחירים.
+  // מסך ההסבר, פעם אחת אחרי ההשקה. מסביר את הכלל בשלוש שורות ומסתיים
+  // בשאלה אחת, כי ילד לא קורא מסך הסבר ארוך.
+  async function starsIntro() {
+    const me = WS.me.child || {};
+    const g = me.gender;
+    const w = (f, m, n) => (g === 'f' ? f : g === 'm' ? m : n);
+    const d = await WS.get('child/rewards').catch(() => null);
+    const cheapest = d && d.catalog.filter(c => !c.joke).sort((a, b) => a.cost - b.cost)[0];
+
+    const go = async (where) => {
+      await WS.post('child/stars-intro/seen', {}).catch(() => {});
+      WS.go(where);
+    };
+
+    shell(h('div.intro',
+      h('div.hello', '⭐'),
+      h('h2', me.name + ', יש חדש!'),
+      h('div.kid-card',
+        h('p.big', 'כל שיעור ' + w('שתסיימי', 'שתסיים', 'שתסיימו') + ' מזכה ב' + w('כוכבים', 'כוכבים', 'כוכבים') + ' ⭐'),
+        h('ul.intro-list',
+          h('li', 'ככל שהתשובות נכונות יותר — יותר כוכבים'),
+          h('li', 'הכוכבים נאספים מיום ליום'),
+          cheapest ? h('li', 'עם ' + cheapest.cost + ' כוכבים אפשר כבר לקבל ' + cheapest.emoji + ' ' + cheapest.name) : null,
+          h('li', w('אם תפספסי יום, ירדו כמה כוכבים', 'אם תפספס יום, ירדו כמה כוכבים', 'אם תפספסו יום, ירדו כמה כוכבים')))),
+      h('div.kid-card',
+        h('h3', w('רוצה לבחור פרס עכשיו?', 'רוצה לבחור פרס עכשיו?', 'רוצים לבחור פרס עכשיו?')),
+        h('p.muted', w('אפשר לבחור מה שאת רוצה, גם אם עוד אין מספיק כוכבים — ואז רואים כמה נשאר.',
+          'אפשר לבחור מה שאתה רוצה, גם אם עוד אין מספיק כוכבים — ואז רואים כמה נשאר.',
+          'אפשר לבחור, גם בלי מספיק כוכבים — ואז רואים כמה נשאר.')),
+        h('div.row', { style: { gap: '10px', marginTop: '10px' } },
+          h('button.big-btn', { onclick: () => go('#/rewards') }, '🎁 ' + w('כן, לבחור פרס', 'כן, לבחור פרס', 'כן, לבחור פרס')),
+          h('button.big-btn.ghost', { onclick: () => go('#/') }, 'אחר כך')))
+    ), 'home');
+  }
+
   // ציור סרט למסך הבדיחה. SVG פנימי, בלי תלות בקובץ חיצוני.
   function movieArt() {
     const ns = 'http://www.w3.org/2000/svg';

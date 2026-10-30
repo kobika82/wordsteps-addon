@@ -138,6 +138,14 @@
       h('div.row',
         h('button.btn.sm', { onclick: () => addRow({ emoji: '🎁', name: '', cost: 100 }) }, '➕ הוסף פרס'),
         h('span.grow'),
+        h('button.btn', { onclick: (e) => WS.busy(e.currentTarget, async () => {
+          if (!confirm('לשלוח לילדים הודעה על פתיחת תוכנית הכוכבים? ההודעה נשלחת פעם אחת לכל ילד.')) return;
+          const r = await WS.post('stars/launch', {});
+          const ok = r.sent.filter(x => x.ok).map(x => x.name);
+          const bad = r.sent.filter(x => !x.ok);
+          WS.toast(ok.length ? 'נשלח ל: ' + ok.join(', ') : 'לא נשלח לאיש', !ok.length);
+          if (bad.length) alert('נכשלו: ' + bad.map(x => x.name + ' (' + x.error + ')').join(', '));
+        }) }, '📣 שלח לילדים הודעת פתיחה'),
         h('button.btn.primary', { onclick: (e) => WS.busy(e.currentTarget, async () => {
           await WS.put('stars', {
             max: +I.max.value, base: +I.base.value, streakBonus: +I.streak.value, missPenalty: +I.miss.value,
