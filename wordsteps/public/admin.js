@@ -81,6 +81,27 @@
   // ---------- תוכנית הכוכבים ----------
   // הכרטיס מראה את הפרמטרים ואת המשמעות שלהם באותו מסך. המספר שההורה
   // באמת שואל עליו הוא "כמה שיעורים עומדים מאחורי הפרס", ולא כמה כוכבים.
+  // שליחת הודעת הפתיחה. ילד שכבר קיבל אותה מדולג — אבל אם אף אחד לא נכנס
+  // בעקבותיה, הדילוג הוא בדיוק מה שעומד בדרך, ולכן מציעים לשלוח שוב.
+  async function launchStars(again) {
+    const r = await WS.post('stars/launch', again ? { again: true } : {});
+    const ok = r.sent.filter(x => x.ok).map(x => x.name);
+    const bad = r.sent.filter(x => !x.ok);
+    WS.toast(ok.length ? 'נשלח ל: ' + ok.join(', ') : 'לא נשלח לאיש', !ok.length);
+
+    const skipped = r.skipped || [];
+    const resend = skipped.filter(x => x.resend);
+    const why = [
+      ...bad.map(x => x.name + ' — ההתראה נכשלה: ' + (x.error || 'שגיאה לא ידועה')),
+      ...skipped.filter(x => !x.resend).map(x => x.name + ' — ' + x.why)
+    ];
+    if (!r.children) why.push('אין ילדים מוגדרים בתוספת.');
+    if (why.length) alert(['מי שלא קיבל, ולמה:', '', ...why].join('\n'));
+
+    if (resend.length && confirm(resend.map(x => x.name).join(', ')
+      + ' כבר קיבלו את ההודעה. לשלוח להם תזכורת?')) return launchStars(true);
+  }
+
   async function starsCard() {
     const d = await WS.get('stars');
     const box = h('div.card');
@@ -144,17 +165,8 @@
         h('button.btn.sm', { onclick: () => addRow({ emoji: '🎁', name: '', cost: 100 }) }, '➕ הוסף פרס'),
         h('span.grow'),
         h('button.btn', { onclick: (e) => WS.busy(e.currentTarget, async () => {
-          if (!confirm('לשלוח לילדים הודעה על פתיחת תוכנית הכוכבים? ההודעה נשלחת פעם אחת לכל ילד.')) return;
-          const r = await WS.post('stars/launch', {});
-          const ok = r.sent.filter(x => x.ok).map(x => x.name);
-          const bad = r.sent.filter(x => !x.ok);
-          WS.toast(ok.length ? 'נשלח ל: ' + ok.join(', ') : 'לא נשלח לאיש', !ok.length);
-          const why = [
-            ...bad.map(x => x.name + ' — ההתראה נכשלה: ' + (x.error || 'שגיאה לא ידועה')),
-            ...(r.skipped || []).map(x => x.name + ' — ' + x.why)
-          ];
-          if (!r.children) why.push('אין ילדים מוגדרים בתוספת.');
-          if (why.length) alert(['מי שלא קיבל, ולמה:', '', ...why].join('\n'));
+          if (!confirm('לשלוח לילדים הודעה על פתיחת תוכנית הכוכבים?')) return;
+          await launchStars(false);
         }) }, '📣 שלח לילדים הודעת פתיחה'),
         h('button.btn.primary', { onclick: (e) => WS.busy(e.currentTarget, async () => {
           await WS.put('stars', {

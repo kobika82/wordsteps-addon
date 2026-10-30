@@ -287,13 +287,21 @@ route('POST', '/api/stars/launch', 'admin', async ({ body }) => {
   for (const c of store.data.children) {
     if (!c.active) { skipped.push({ name: c.name, why: 'הפרופיל מושהה' }); continue; }
     if (!c.notifyService) { skipped.push({ name: c.name, why: 'לא משויך מכשיר להתראות' }); continue; }
+    // דילוג שניתן לבטל: הלקוח שואל אם לשלוח שוב, ומגיע עם again
     if (c.starsIntroSentAt && !body.again) {
-      skipped.push({ name: c.name, why: 'כבר נשלח ב-' + new Date(c.starsIntroSentAt).toLocaleDateString('he-IL') });
+      skipped.push({ name: c.name, resend: true,
+        why: 'כבר נשלח ב-' + new Date(c.starsIntroSentAt).toLocaleDateString('he-IL') });
       continue;
     }
     const g = c.gender;
     const verb = g === 'f' ? 'תוכלי' : g === 'm' ? 'תוכל' : 'תוכלו';
-    const r = await scheduler.send(store, {
+    // תזכורת מנוסחת אחרת מהבשורה: ילד שכבר קיבל הודעה ולא נכנס לא צריך
+    // לשמוע שוב "יש חדש", אלא שמחכים לו כוכבים
+    const r = await scheduler.send(store, c.starsIntroSentAt ? {
+      childId: c.id, kind: 'stars-intro', service: c.notifyService,
+      title: 'WordSteps ⭐',
+      message: `${c.name}, תוכנית הכוכבים כבר פתוחה ומחכה לך — ${verb} להיכנס, לראות איך צוברים כוכבים ולבחור פרס 🎁`
+    } : {
       childId: c.id, kind: 'stars-intro', service: c.notifyService,
       title: 'WordSteps ⭐ חדש!',
       message: `${c.name}, מהיום כל שיעור מזכה בכוכבים ⭐ ${verb} לאסוף אותם ולבחור פרס 🎁 אפשר להיכנס ולראות איך זה עובד.`
