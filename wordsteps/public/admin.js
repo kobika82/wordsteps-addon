@@ -144,7 +144,12 @@
           const ok = r.sent.filter(x => x.ok).map(x => x.name);
           const bad = r.sent.filter(x => !x.ok);
           WS.toast(ok.length ? 'נשלח ל: ' + ok.join(', ') : 'לא נשלח לאיש', !ok.length);
-          if (bad.length) alert('נכשלו: ' + bad.map(x => x.name + ' (' + x.error + ')').join(', '));
+          const why = [
+            ...bad.map(x => x.name + ' — ההתראה נכשלה: ' + (x.error || 'שגיאה לא ידועה')),
+            ...(r.skipped || []).map(x => x.name + ' — ' + x.why)
+          ];
+          if (!r.children) why.push('אין ילדים מוגדרים בתוספת.');
+          if (why.length) alert(['מי שלא קיבל, ולמה:', '', ...why].join('\n'));
         }) }, '📣 שלח לילדים הודעת פתיחה'),
         h('button.btn.primary', { onclick: (e) => WS.busy(e.currentTarget, async () => {
           await WS.put('stars', {

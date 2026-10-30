@@ -283,9 +283,14 @@ route('PUT', '/api/stars', 'admin', async ({ body }) => {
 // כדי שלחיצה שנייה לא תציף אותם באותה הודעה.
 route('POST', '/api/stars/launch', 'admin', async ({ body }) => {
   const sent = [];
+  const skipped = [];
   for (const c of store.data.children) {
-    if (!c.active || !c.notifyService) continue;
-    if (c.starsIntroSentAt && !body.again) continue;
+    if (!c.active) { skipped.push({ name: c.name, why: 'הפרופיל מושהה' }); continue; }
+    if (!c.notifyService) { skipped.push({ name: c.name, why: 'לא משויך מכשיר להתראות' }); continue; }
+    if (c.starsIntroSentAt && !body.again) {
+      skipped.push({ name: c.name, why: 'כבר נשלח ב-' + new Date(c.starsIntroSentAt).toLocaleDateString('he-IL') });
+      continue;
+    }
     const g = c.gender;
     const verb = g === 'f' ? 'תוכלי' : g === 'm' ? 'תוכל' : 'תוכלו';
     const r = await scheduler.send(store, {
@@ -297,7 +302,7 @@ route('POST', '/api/stars/launch', 'admin', async ({ body }) => {
     sent.push({ name: c.name, ok: r.ok, error: r.error });
   }
   store.save();
-  return { sent };
+  return { sent, skipped, children: store.data.children.length };
 });
 
 // הילד מסמן שראה את מסך ההסבר, כדי שלא יקפוץ שוב בכל כניסה
