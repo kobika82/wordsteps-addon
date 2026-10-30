@@ -197,7 +197,12 @@ route('GET', '/api/child/home', 'child', async ({ child }) => {
 route('POST', '/api/child/lesson/start', 'child', async ({ child, body }) => L.startLesson(store, child, body));
 route('POST', '/api/child/lesson/:id/answer', 'child', async ({ child, params, body }) => L.answer(store, child, params.id, body.step, body));
 route('POST', '/api/child/lesson/:id/advance', 'child', async ({ child, params, body }) => L.advance(store, child, params.id, body.step));
-route('POST', '/api/child/lesson/:id/complete', 'child', async ({ child, params }) => L.complete(store, child, params.id));
+route('POST', '/api/child/lesson/:id/complete', 'child', async ({ child, params }) => {
+  const summary = await L.complete(store, child, params.id);
+  // הדיווח להורה לא חוסם את הילד: כשל בשליחה לא ייכשל את סיום השיעור
+  scheduler.notifyLessonDone(store, child, store.lesson(params.id)).catch(e => console.error('lesson-done notify', e.message));
+  return summary;
+});
 route('GET', '/api/child/progress', 'child', async ({ child }) => {
   const prog = store.childProgress(child.id);
   const recs = Object.values(prog).filter(r => r.sessions > 0);
@@ -490,6 +495,9 @@ route('PUT', '/api/settings', 'admin', async ({ body }) => {
   if ('daysAhead' in body) s.daysAhead = int(body.daysAhead, 1, 14, 1);
   if ('imageSource' in body && ['arasaac', 'openverse', 'gemini', 'none'].includes(body.imageSource)) s.imageSource = body.imageSource;
   if ('notifyReviewDays' in body) s.notifyReviewDays = !!body.notifyReviewDays;
+  if ('notifyAdminLessonDone' in body) s.notifyAdminLessonDone = !!body.notifyAdminLessonDone;
+  if ('notifyAdminDaySummary' in body) s.notifyAdminDaySummary = !!body.notifyAdminDaySummary;
+  if (typeof body.summaryTime === 'string' && /^[0-9]{2}:[0-9]{2}$/.test(body.summaryTime)) s.summaryTime = body.summaryTime;
   if (body.aiReview && typeof body.aiReview === 'object') {
     const a = body.aiReview;
     s.aiReview = { enabled: !!a.enabled, perDay: int(a.perDay, 1, 100, 10), intervalMin: int(a.intervalMin, 5, 1440, 60), retryMin: int(a.retryMin, 1, 1440, 10) };

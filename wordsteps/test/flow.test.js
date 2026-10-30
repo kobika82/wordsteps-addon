@@ -227,7 +227,7 @@ test('הודעה יומית למנהל נשלחת בשעה שנקבעה, רק כ
 
 test('התראות לילד: בשעה שנקבעה, פעם אחת, תזכורת עד להשלמה; שיעור שהוחמץ מחזיר את המילים לתור', async () => {
   const sent = [];
-  ha.notify = async (service, msg) => { sent.push({ service, ...msg }); };
+  ha.notify = async (service, msg) => { if (service !== 'mobile_app_parent') sent.push({ service, ...msg }); };
   scheduler.setPanelUrl('/hassio/ingress/abc_wordsteps');
   await ok(admin('PUT', `children/${child.id}`, { notifyService: 'mobile_app_noa_iphone', notifyTime: '16:00', reminderEnabled: true, reminderAfterMin: 60 }));
   setClock('2026-10-15T12:00:00Z'); // 15:00 — לפני השעה
@@ -254,7 +254,8 @@ test('התראות לילד: בשעה שנקבעה, פעם אחת, תזכורת 
 
 test('ביום שאינו יום לימוד או לילד מושהה אין התראה; שיעור שהושלם לפני השעה — אין התראה', async () => {
   const sent = [];
-  ha.notify = async (service, msg) => { sent.push(msg); };
+  // גם כאן: הבדיקה על התראות לילד, לא על דיווחי ההורה
+  ha.notify = async (service, msg) => { if (service !== 'mobile_app_parent') sent.push(msg); };
   const missed = dailyLessons('2026-10-15')[0];
   setClock('2026-10-16T13:30:00Z'); // שישי
   await scheduler.tick(store);

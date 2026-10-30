@@ -16,6 +16,9 @@ function emptyData() {
       daysAhead: 1,               // כמה ימים קדימה להכין אוטומטית
       imageSource: 'arasaac',     // arasaac (ואז openverse) | openverse | gemini | none — הצעת תמונה אוטומטית למילים חדשות
       notifyReviewDays: true,     // לשלוח התראה גם ביום שיש בו רק שיעור חזרה
+      notifyAdminLessonDone: true,  // דיווח למנהל מיד כשילד מסיים שיעור
+      notifyAdminDaySummary: true,  // סיכום יומי: מי למד ומי לא
+      summaryTime: '20:30',         // שעת הסיכום היומי - אחרי שהיום נגמר בפועל
       adminUserIds: [],           // מנהלים נוספים שהוגדרו מתוך האפליקציה
       migratedArasaac: true,
       migratedAutoLessons: true,

@@ -100,6 +100,70 @@ async function childTick(store, child, p) {
   }
 }
 
+// ---------- דיווח להורה ----------
+//
+// שני דיווחים שונים, כי הם עונים על שתי שאלות שונות. המיידי עונה על "מה
+// קרה עכשיו" ברגע שילד סיים. הסיכום היומי עונה על "מי לא למד היום", ואותו
+// אי אפשר לדעת עד שהיום נגמר - החמצה מוגדרת רק בסופו.
+function lessonDoneMessage(store, child, lesson) {
+  const s = lesson.summary || {};
+  const bits = [];
+  if (s.newWords) bits.push(`${s.newWords} מילים חדשות`);
+  if (s.total) bits.push(`${s.correct} מתוך ${s.total} נכון (${s.pct}%)`);
+  if (s.milestone) bits.push(`אבן דרך: ${s.milestone} מילים!`);
+  const weak = (s.weak || []).slice(0, 4).map(w => w.en).join(', ');
+  let m = `${child.name} ${word(child.gender, 'סיים', 'סיימה', 'סיימו')} את השיעור. ` + bits.join(' · ');
+  if (weak) m += `\nהתקשה ב: ${weak}`;
+  return m;
+}
+
+async function notifyLessonDone(store, child, lesson) {
+  const s = store.data.settings;
+  if (!s.notifyAdminLessonDone || !s.adminNotifyService) return null;
+  return send(store, {
+    childId: child.id, kind: 'lesson-done', service: s.adminNotifyService,
+    title: 'WordSteps — שיעור הושלם', message: lessonDoneMessage(store, child, lesson),
+    lessonDate: lesson.date
+  });
+}
+
+// סיכום סוף יום: מי למד, מי לא, ומי בכלל לא אמור היה היום.
+// נשלח גם כשכולם למדו — "הכול בוצע" הוא מידע, ושתיקה אינה.
+function daySummary(store, date) {
+  const lines = [];
+  let done = 0, missed = 0;
+  for (const c of store.data.children) {
+    if (!c.active) continue;
+    const lesson = store.data.lessons.find(l => l.childId === c.id && l.date === date && l.kind === 'daily');
+    if (!L.isStudyDay(c, date)) { lines.push(`${c.name}: לא יום לימוד`); continue; }
+    if (lesson && lesson.status === 'completed') {
+      const s = lesson.summary || {};
+      done += 1;
+      lines.push(`${c.name}: ✅ ${s.pct != null ? s.pct + '%' : 'הושלם'}${s.newWords ? ` · ${s.newWords} מילים חדשות` : ''}`);
+    } else if (lesson) {
+      missed += 1;
+      lines.push(`${c.name}: ❌ לא השלים${lesson.status === 'in_progress' ? ' (התחיל ולא סיים)' : ''}`);
+    } else {
+      const pool = L.poolInfo(store, c);
+      missed += 1;
+      lines.push(`${c.name}: ❌ לא היה שיעור${pool.available ? '' : ' — אין מילים מאושרות'}`);
+    }
+  }
+  if (!lines.length) return null;
+  return { title: `WordSteps — סיכום ${done ? `${done} למדו` : ''}${done && missed ? ', ' : ''}${missed ? `${missed} לא למדו` : ''}`.trim(), message: lines.join('\n'), done, missed };
+}
+
+async function summaryTick(store, p) {
+  const s = store.data.settings;
+  if (!s.notifyAdminDaySummary || !s.adminNotifyService) return;
+  const at = toMinutes(s.summaryTime);
+  if (at == null || p.minutes < at || s.lastSummaryDate === p.date) return;
+  s.lastSummaryDate = p.date;
+  store.save();
+  const sum = daySummary(store, p.date);
+  if (sum) await send(store, { kind: 'day-summary', service: s.adminNotifyService, title: sum.title, message: sum.message, lessonDate: p.date });
+}
+
 // הודעה יומית למנהל — רק כשצריך לעשות משהו: מילים שממתינות לאישור, או ילד שנגמרות לו המילים המאושרות
 const LOW_DAYS = 3;
 function adminDigest(store) {
@@ -131,6 +195,7 @@ async function tick(store) {
   try {
     const p = localParts();
     await prepTick(store, p);
+    try { await summaryTick(store, p); } catch (e) { console.error("summary", e.message); }
     try { await aireview.tick(store); } catch (e) { console.error('ai review', e.message); }
     for (const child of store.data.children) {
       try { await childTick(store, child, p); } catch (e) { console.error('notify tick', child.id, e.message); }
@@ -143,4 +208,5 @@ function start(store) {
   return setInterval(() => tick(store).catch(e => console.error(e)), 30000);
 }
 
-module.exports = { start, tick, send, setPanelUrl, getPanelUrl, dailyMessage, adminDigest, notifyTimeFor, holidayOn };
+module.exports = { start, tick, send, setPanelUrl, getPanelUrl, dailyMessage, adminDigest, notifyTimeFor, holidayOn,
+  notifyLessonDone, daySummary, lessonDoneMessage };

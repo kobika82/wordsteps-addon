@@ -741,7 +741,10 @@
       aiInterval: h('input', { type: 'number', min: 5, max: 1440, value: (s.aiReview || {}).intervalMin || 60 }),
       aiRetry: h('input', { type: 'number', min: 1, max: 1440, value: (s.aiReview || {}).retryMin || 10 }),
       imageSource: h('select', [['arasaac', 'איור מ-ARASAAC, ואם אין — תמונה מ-Openverse (חינם)'], ['openverse', 'חיפוש תמונה ב-Openverse (חינם)'], ['gemini', 'איור ב-Gemini (בתשלום לפי שימוש)'], ['none', 'ללא — אבחר ידנית']].map(([k, t]) => h('option', { value: k, selected: s.imageSource === k }, t))),
-      notifyReviewDays: h('input', { type: 'checkbox', checked: s.notifyReviewDays })
+      notifyReviewDays: h('input', { type: 'checkbox', checked: s.notifyReviewDays }),
+      notifyAdminLessonDone: h('input', { type: 'checkbox', checked: s.notifyAdminLessonDone !== false }),
+      notifyAdminDaySummary: h('input', { type: 'checkbox', checked: s.notifyAdminDaySummary !== false }),
+      summaryTime: h('input', { type: 'time', value: s.summaryTime || '20:30' })
     };
     const adminChecks = h('div.checks', usersR.users.map(u => h('label',
       h('input', { type: 'checkbox', name: 'adm', value: u.id, checked: u.isAdmin || s.adminUserIds.includes(u.id), disabled: u.isAdmin }),
@@ -825,6 +828,11 @@
         h('p.small.muted', 'Gemini רק ממליץ: המילים נשארות ממתינות עד שתאשרו אותן במסך "אישור מילים". מרווח בין בקשות מונע עומס ושגיאות.')),
       h('div.card', h('h2', 'תוכן ותמונות'), field('הצעת תמונה למילים חדשות', I.imageSource),
         h('label.checks', { style: { marginTop: '10px' } }, I.notifyReviewDays, ' לשלוח לילד התראה גם ביום בלי שיעור מאושר (חזרה בלבד)')),
+      h('div.card', h('h2', '📊 דיווח להורה'),
+        h('label.checks', I.notifyAdminLessonDone, ' להודיע לי מיד כשילד מסיים שיעור'),
+        h('label.checks', { style: { marginTop: '8px' } }, I.notifyAdminDaySummary, ' לשלוח לי סיכום יומי: מי למד ומי לא'),
+        h('div.grid3', { style: { marginTop: '10px' } }, field('שעת הסיכום היומי', I.summaryTime)),
+        h('p.small.muted', "הסיכום נשלח אחרי שהיום נגמר, כי רק אז אפשר לדעת מי החמיץ. הוא נשלח גם כשכולם למדו, כי \"הכול בוצע\" הוא מידע ושתיקה אינה.")),
       h('div.card', h('h2', 'מנהלים'), h('p.small.muted', 'מנהלי Home Assistant הם תמיד מנהלים כאן. אפשר להוסיף משתמשים נוספים:'), adminChecks),
       h('div.row', h('button.btn.primary', { onclick: (e) => WS.busy(e.currentTarget, async () => {
         await WS.put('settings', {
@@ -832,6 +840,8 @@
           holidays: holRows.filter(r => r.el.isConnected).map(r => ({ name: r.name.value, from: r.from.value, to: r.to.value, time: r.time.value, yearly: r.yearly.checked })),
           aiReview: { enabled: I.aiEnabled.checked, perDay: I.aiPerDay.value, intervalMin: I.aiInterval.value, retryMin: I.aiRetry.value },
           imageSource: I.imageSource.value, notifyReviewDays: I.notifyReviewDays.checked,
+          notifyAdminLessonDone: I.notifyAdminLessonDone.checked,
+          notifyAdminDaySummary: I.notifyAdminDaySummary.checked, summaryTime: I.summaryTime.value,
           adminUserIds: [...adminChecks.querySelectorAll('input:checked:not(:disabled)')].map(x => x.value)
         });
         WS.toast('נשמר ✓');
