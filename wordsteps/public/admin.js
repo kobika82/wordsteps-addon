@@ -240,7 +240,7 @@
     const [pool, past] = await Promise.all([WS.get('quiz/pool'), WS.get('quizzes')]);
     const box = h('div.card', h('h2', '📝 מבדק'),
       h('p.small.muted', 'בדיקה של המילים שהילד כבר למד: מילה באנגלית וארבעה פירושים בעברית. ' +
-        'מדידה בלבד — לא משנה את לוח החזרות ולא מזכה בכוכבים.'));
+        'מזכה בכוכבים כמו שיעור יומי, ולא משנה את לוח החזרות. רק מכאן אפשר לפתוח מבדק.'));
 
     const rows = pool.children.map((c) => {
       const count = h('select', h('option', { value: '0' }, 'כל המילים (' + c.words + ')'),
@@ -263,12 +263,13 @@
     if (done.length) {
       box.append(h('h3', { style: { marginTop: '14px' } }, 'תוצאות'),
         h('div.table-wrap', h('table.t',
-          h('tr', h('th', 'ילד'), h('th', 'מתי'), h('th', 'ציון'), h('th', 'מילים שנפלו'), h('th', '')),
+          h('tr', h('th', 'ילד'), h('th', 'מתי'), h('th', 'ציון'), h('th', 'כוכבים'), h('th', 'מילים שנפלו'), h('th', '')),
           done.slice(0, 10).map((q) => h('tr',
             h('td', q.childName),
             h('td', WS.fmtTime(q.finishedAt || q.createdAt)),
             h('td', q.status === 'done'
               ? h('b', `${q.right}/${q.total}`) : `${q.right}/${q.answered} (באמצע)`),
+            h('td', q.stars == null ? '—' : '⭐ ' + q.stars),
             h('td', q.wrong.length
               ? h('span.chips', q.wrong.slice(0, 10).map((w) => h('span.chip', en(w.en), ' — ' + w.he)))
               : h('span.muted', 'הכול נכון')),

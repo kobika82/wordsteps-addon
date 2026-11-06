@@ -468,9 +468,18 @@ test('מבדק: רק מילים שנלמדו, ארבע אפשרויות, וצי�
   assert.equal(r.wrong.length, 1);
   assert.equal(r.wrong[0].he, q.questions[q.questions.length - 1].he);
 
-  // המדידה לא שינתה את הלמידה
+  // המבדק מזכה בכוכבים כמו שיעור יומי, אבל לא נוגע בלוח החזרות
   assert.deepEqual(store.childProgress(child.id), before, 'המבדק לא נוגע בלוח החזרות');
-  assert.equal(child.stars || 0, starsBefore, 'המבדק לא מזכה בכוכבים');
+  const rewards = require('../server/rewards');
+  const expect = rewards.starsForLesson(store, r.pct, rewards.streakOf(store, store.child(child.id), U.today()) + 1).stars;
+  assert.ok(expect > 0, 'הנוסחה מחזירה כוכבים');
+  assert.equal(r.stars, expect, 'אותה נוסחה של שיעור יומי');
+  assert.equal(store.child(child.id).stars, starsBefore + expect, 'הכוכבים נוספו לילד');
+  assert.equal(r.totalStars, starsBefore + expect);
+
+  // תשובה נוספת אחרי הסיום לא מזכה שוב
+  await ok(kid('POST', `child/quiz/${view.id}/answer`, { choice: 'משהו' }));
+  assert.equal(store.child(child.id).stars, starsBefore + expect, 'אין זיכוי כפול');
 
   // אין יותר מבדק פתוח, והתוצאה נשמרת להורה
   assert.equal(await ok(kid('GET', 'child/quiz')), null);

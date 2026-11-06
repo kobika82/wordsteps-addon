@@ -369,21 +369,25 @@ route('GET', '/api/child/quiz', 'child', async ({ child }) => QZ.forChild(QZ.ope
 route('GET', '/api/child/quiz/:id/result', 'child', async ({ child, params }) => {
   const q = QZ.byId(store, params.id);
   if (!q || q.childId !== child.id) throw new HttpError(404, 'מבדק לא נמצא');
-  return QZ.score(q);
+  return { ...QZ.score(q), totalStars: child.stars || 0 };
 });
 
 route('POST', '/api/child/quiz/:id/answer', 'child', async ({ child, params, body }) => {
   const q = QZ.byId(store, params.id);
   if (!q || q.childId !== child.id) throw new HttpError(404, 'מבדק לא נמצא');
-  const res = QZ.answer(store, q, body.choice);
+  const res = QZ.answer(store, child, q, body.choice);
+  res.totalStars = child.stars || 0;
   if (res.done) {
     const s = store.data.settings;
     const svc = s.adminNotifyService;
     if (svc) {
       const sc = QZ.score(q);
+      const g = child.gender;
+      const did = g === 'm' ? 'סיים' : g === 'f' ? 'סיימה' : 'סיימו';
       scheduler.send(store, { childId: child.id, kind: 'quiz-done', service: svc,
         title: 'WordSteps 📝 מבדק הושלם',
-        message: `${child.name} סיימה מבדק: ${sc.right} מתוך ${sc.total} (${sc.pct}%).`
+        message: `${child.name} ${did} מבדק: ${sc.right} מתוך ${sc.total} (${sc.pct}%)`
+          + (sc.stars ? `, ${sc.stars} כוכבים.` : '.')
           + (sc.wrong.length ? `\nנפלו: ${sc.wrong.slice(0, 8).map(w => w.en).join(', ')}` : ''),
       }).catch(e => console.error('quiz notify', e.message));
     }

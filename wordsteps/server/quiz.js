@@ -2,12 +2,15 @@
 // מבדק: בדיקה אחת שעוברת על המילים שהילד כבר למד, ושואלת רק דבר אחד —
 // מה הפירוש בעברית. ארבע אפשרויות לכל מילה.
 //
-// מבדק הוא מדידה, לא שיעור. הוא לא מזיז את לוח החזרות (SRS), לא מזכה
-// בכוכבים ולא נחשב כשיעור יומי — אחרת הוא היה משנה בדיוק את מה שהוא בא
-// למדוד, וגם היה הופך "עוד מבדק" לדרך קלה לצבור כוכבים.
+// המבדק מזכה בכוכבים באותה נוסחה של שיעור יומי. אין כאן דרך לצבור
+// כוכבים בזול: רק ההורה יוצר מבדק, ולילד אין כפתור "עוד מבדק".
+//
+// מה שהוא כן לא עושה: להזיז את לוח החזרות (SRS). מדידה לא אמורה לשנות
+// את מה שהיא באה למדוד, ולוח החזרות נקבע מהשיעורים עצמם.
 
 const C = require('./content');
 const U = require('./util');
+const rewards = require('./rewards');
 
 const shuffle = (a) => {
   const x = a.slice();
@@ -103,7 +106,7 @@ function forChild(q) {
   };
 }
 
-function answer(store, q, choice) {
+function answer(store, child, q, choice) {
   if (q.status === 'done') return { done: true, ...score(q) };
   const i = q.answers.length;
   if (i >= q.questions.length) return { done: true, ...score(q) };
@@ -114,9 +117,23 @@ function answer(store, q, choice) {
   if (q.answers.length >= q.questions.length) {
     q.status = 'done';
     q.finishedAt = U.now().toISOString();
+    award(store, child, q);
   }
   store.save();
   return { ok, correct: cur.he, en: cur.en, done: q.status === 'done', ...score(q) };
+}
+
+// כוכבים כמו בשיעור יומי: אותה נוסחה, אותו רצף, אותו סכום
+function award(store, child, q) {
+  if (q.stars != null) return q.stars;           // לא מזכים פעמיים
+  const s = score(q);
+  const streak = rewards.streakOf(store, child, U.today()) + 1;
+  const detail = rewards.starsForLesson(store, s.pct, streak);
+  q.stars = detail.stars;
+  q.starsDetail = detail;
+  child.stars = (child.stars || 0) + detail.stars;
+  child.starsEarned = (child.starsEarned || 0) + detail.stars;
+  return q.stars;
 }
 
 function score(q) {
@@ -128,6 +145,7 @@ function score(q) {
   });
   const answered = q.answers.length;
   return { right, answered, total: q.questions.length, wrong,
+    stars: q.stars == null ? null : q.stars,
     pct: answered ? Math.round((right / answered) * 100) : 0 };
 }
 

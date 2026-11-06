@@ -126,11 +126,13 @@
     const r = res || await WS.get(`child/quiz/${id}/result`).catch(() => null);
     const pct = r ? r.pct : 0;
     const face = pct >= 90 ? '🏆' : pct >= 70 ? '🎉' : '💪';
+    if (r && r.totalStars != null) WS.me.child.stars = r.totalStars;
     shell(h('div',
       h('div.kid-card.center',
         h('div', { style: { fontSize: '64px' } }, face),
         h('h2', 'סיימת את המבדק!'),
         h('p.big', r ? `${r.right} מתוך ${r.total}` : ''),
+        r && r.stars ? h('p.big', `⭐ ${r.stars} כוכבים`) : null,
         h('p.muted', pct >= 90 ? 'כמעט הכול נכון. מרשים!' : pct >= 70 ? 'יפה מאוד!' : 'יש עוד מה לחזק — וזה בסדר גמור.'),
         r && r.wrong && r.wrong.length ? h('div', { style: { marginTop: '14px', textAlign: 'right' } },
           h('h3', 'מילים לחזור עליהן'),
