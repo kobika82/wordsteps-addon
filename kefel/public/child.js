@@ -214,29 +214,23 @@
   }
 
   // ניסוח השאלה (מוצג) והקראתה
+  // שלוש תבניות: mc (בחירה מתוך ארבע), pad (הקלדה), seq (מספר חסר ברצף)
   function prompt(s) {
-    const t = theme(s.b);
-    if (s.t === 'pic') return { title: `כמה ${t.things} יש בסך הכול?`, say: `${caption(s.a, s.b)}. כמה ${t.things} יש בסך הכול?` };
     if (s.t === 'seq') return { title: `איזה מספר חסר בכפולות של ${s.n}?`, say: `איזה מספר חסר בכפולות של ${KF.num(s.n)}?` };
-    if (s.t === 'miss') return { title: 'איזה מספר חסר?', say: `${KF.num(s.a)} כפול כמה שווה ${KF.num(s.product)}?` };
     if (s.t === 'pad') return { title: 'כמה זה?', say: `כמה זה ${KF.sayFact(s.a, s.b)}? ${g('כתוב', 'כתבי', 'כתבו')} את התשובה.` };
     return { title: 'כמה זה?', say: `כמה זה ${KF.sayFact(s.a, s.b)}?` };
   }
   // העובדה המלאה, למשוב: a × b = p
-  function fact(s) {
-    if (s.t === 'seq') return [s.answer / s.n, s.n, s.answer];
-    if (s.t === 'miss') return [s.a, s.b, s.product];
-    return [s.a, s.b, s.a * s.b];
-  }
+  function fact(s) { return [s.a, s.b, s.a * s.b]; }
 
   function question(P, s) {
     const q = prompt(s);
     const hole = h('span.hole', '?');
-    let stage;
-    if (s.t === 'pic') stage = h('div', KF.groups(s.a, s.b, theme(s.b).item, { hideCount: true }), h('p.lead', caption(s.a, s.b)));
-    else if (s.t === 'seq') stage = h('div.strip.seq', { dir: 'ltr' }, s.seq.map(x => h('span.cell' + (x == null ? '.hole' : '.on'), x == null ? '?' : String(x))));
-    else if (s.t === 'miss') stage = h('div.eq.big', { dir: 'ltr' }, h('span', String(s.a)), h('span.op', '×'), hole, h('span.op', '='), h('span.res', String(s.product)));
-    else stage = eq(s.a, s.b, hole, '.big');
+    // ברצף, ה"חור" הוא תא בפס הכפולות; בשאר — התוצאה במשוואה
+    if (s.t === 'seq') hole.classList.add('cell');
+    const stage = s.t === 'seq'
+      ? h('div.strip.seq', { dir: 'ltr' }, s.seq.map(x => (x == null ? hole : h('span.cell.on', String(x)))))
+      : eq(s.a, s.b, hole, '.big');
 
     const card = h('div.kid-card.center.q',
       s.retry ? h('div.tag.retry', 'עוד ניסיון 💪') : s.role === 'review' || s.role === 'mix' ? h('div.tag.review', `כפולות של ${s.n}`) : null,
@@ -254,7 +248,7 @@
       P.plan = r.plan;
       P.results[P.step] = { correct: r.correct };
       if (mark) mark(r.correct);
-      if (s.t === 'seq' || s.t === 'miss' || s.t === 'pad' || s.t === 'mc') hole.textContent = String(s.answer);
+      hole.textContent = String(s.answer);
       hole.classList.add(r.correct ? 'ok' : 'fix');
       P.step++;
       feedback(P, s, r.correct);
@@ -292,7 +286,7 @@
   }
 
   function retryLocal(s) {
-    const other = s.t === 'seq' ? s.answer / s.n : s.t === 'miss' ? (s.a === s.n ? s.b : s.a) : (s.a === s.n ? s.b : s.a);
+    const other = s.a === s.n ? s.b : s.a;
     const a = Math.random() < 0.5 ? other : s.n, b = a === other ? s.n : other;
     const p = a * b;
     const opts = [p, p + s.n, Math.max(1, p - s.n), p + 1].filter((x, i, arr) => arr.indexOf(x) === i);

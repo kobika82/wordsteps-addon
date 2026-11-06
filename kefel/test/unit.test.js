@@ -5,7 +5,7 @@ const M = require('../server/math');
 
 test('כל סוגי השאלות: התשובה ברשימה, אין כפילויות, החשבון נכון', () => {
   for (let i = 0; i < 300; i++) {
-    for (const t of ['mc', 'pad', 'pic', 'seq', 'miss']) {
+    for (const t of M.QUESTION_TYPES) {
       for (const n of M.TABLES) {
         const k = 1 + (i % 10);
         const q = M.question(t, n, k);
@@ -14,13 +14,14 @@ test('כל סוגי השאלות: התשובה ברשימה, אין כפילוי
           assert.ok(q.options.includes(q.answer));
           assert.ok(q.options.every(x => x > 0));
         }
-        if (t === 'seq') {
+        if (t === 'seq' && n === 1) assert.notStrictEqual(q.t, 'seq', 'אין רצף בכפולות של 1');
+        if (q.t === 'seq') {
           assert.strictEqual(q.seq.filter(x => x === null).length, 1);
           assert.notStrictEqual(q.seq[0], null);
           assert.strictEqual(q.answer % n, 0);
-        } else if (t === 'miss') assert.strictEqual(q.a * q.answer, q.product);
-        else assert.strictEqual(q.a * q.b, q.answer);
-        if (t === 'pic') assert.strictEqual(q.b, n, 'בציור: קבוצות של n');
+          assert.ok(q.options.every(o => o === q.answer || !q.seq.includes(o)), 'מסיח ברצף לא מופיע ברצף עצמו');
+        }
+        assert.strictEqual(q.a * q.b, q.answer);
       }
     }
   }
@@ -51,17 +52,20 @@ test('בחירת עובדות: בלי חזרות עד שנגמרות, ומעדי
   assert.ok(first7 > 150, 'העובדה החלשה נבחרת הרבה יותר: ' + first7);
 });
 
-test('תוכנית: יום לימוד מתחיל בציור, בלי חזרה; אחר כך חזרה לפי האחוז', () => {
-  const q = M.buildQuiz({}, { current: 3, others: [2], count: 10, learnDay: true, reviewShare: 30 });
-  assert.strictEqual(q.length, 10);
-  assert.strictEqual(q[0].t, 'pic');
-  assert.ok(q.every(x => x.n === 3));
-  const q2 = M.buildQuiz({}, { current: 3, others: [2, 5], count: 10, reviewShare: 30 });
-  assert.strictEqual(q2.filter(x => x.role === 'review').length, 3);
+test('רק שלוש תבניות: בחירה, הקלדה, רצף — ובלי רצף בכפולות של 1', () => {
+  for (let i = 0; i < 100; i++) {
+    const q = M.buildQuiz({}, { current: 3, count: 10, learnDay: i % 2 === 0 });
+    assert.strictEqual(q.length, 10);
+    assert.ok(q.every(x => x.n === 3 && ['mc', 'pad', 'seq'].includes(x.t)));
+    assert.ok(M.buildQuiz({}, { current: 1, count: 10 }).every(x => x.t !== 'seq'));
+    assert.ok(M.buildMix({}, { tables: [1, 2], count: 10 }).every(x => x.t !== 'seq' || x.n !== 1));
+  }
+  const learn = M.buildQuiz({}, { current: 4, count: 10, learnDay: true });
+  assert.strictEqual(learn[0].t, 'mc', 'ביום הלימוד מתחילים בבחירה');
 });
 
 test('שאלת חזרה על טעות היא בחירה מתוך ארבע, על אותה עובדה', () => {
-  for (const t of ['mc', 'pad', 'pic', 'seq', 'miss']) {
+  for (const t of M.QUESTION_TYPES) {
     const q = M.question(t, 6, 7);
     const r = M.retryOf(q);
     assert.strictEqual(r.t, 'mc');

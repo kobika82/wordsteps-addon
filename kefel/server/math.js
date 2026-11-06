@@ -75,28 +75,28 @@ function withOptions(q, a, b, answer) {
   return { ...q, answer, options: shuffle([answer, ...distractors(a, b, answer)]) };
 }
 
-// שאלה אחת על העובדה k בכפולה n. type: mc | pad | pic | seq | miss
+// שאלה אחת על העובדה k בכפולה n. שלוש תבניות (החלטת המשתמש, 0.3.0):
+//   mc  — "כמה זה 4 × 3?" ובחירה מתוך ארבע
+//   pad — אותה שאלה, והילד מקליד את התשובה בעצמו
+//   seq — מספר חסר ברצף הכפולות של n. לא בכפולות של 1 — שם זה סתם 1, 2, 3.
+// התבניות ספירה מתוך ציור וגורם חסר הוסרו.
+const QUESTION_TYPES = ['mc', 'pad', 'seq'];
 function question(type, n, k, extra = {}) {
-  const swap = Math.random() < 0.5;
-  const [a, b] = type === 'pic' || type === 'seq' ? [k, n] : swap ? [n, k] : [k, n];
-  const product = a * b;
-  if (type === 'pad') return { t: 'pad', n, a, b, answer: product, ...extra };
-  if (type === 'pic') return withOptions({ t: 'pic', n, a, b, ...extra }, a, b, product);
-  if (type === 'miss') {
-    // a × ? = product — התשובה היא b
-    // מסיחים: מספרים קרובים ל-b קודם (טעות של אחד), ואז אקראיים מ-1 עד 10
-    const near = shuffle([b - 1, b + 1, b + 2, b - 2].filter(x => x >= 1 && x <= 10));
-    const rest = shuffle(TABLES.filter(x => x !== b && !near.includes(x)));
-    return { t: 'miss', n, a, b, product, answer: b, options: shuffle([b, ...near.slice(0, 2), ...rest].slice(0, 4)), ...extra };
-  }
+  if (type === 'seq' && n === 1) type = 'mc';
   if (type === 'seq') {
     // חמש כפולות רצופות של n, אחת מהן חסרה (לא הראשונה, כדי שיהיה ממה להמשיך)
     const start = Math.max(1, Math.min(6, k - 1 - Math.floor(Math.random() * 3)));
     const seq = [0, 1, 2, 3, 4].map(i => (start + i) * n);
     const idx = seq.indexOf(k * n) > 0 ? seq.indexOf(k * n) : 1 + Math.floor(Math.random() * 4);
     const answer = seq[idx];
-    return withOptions({ t: 'seq', n, a: answer / n, b: n, seq: seq.map((x, i) => (i === idx ? null : x)), ...extra }, answer / n, n, answer);
+    // מסיחים: מספרים קרובים שאינם מופיעים ברצף — טעות ספירה, לא מספר שכבר רואים על המסך
+    const near = [answer + 1, answer - 1, answer + 2, answer - 2, answer + 3, answer - 3].filter(x => x > 0 && !seq.includes(x));
+    return { t: 'seq', n, a: answer / n, b: n, seq: seq.map((x, i) => (i === idx ? null : x)), answer,
+      options: shuffle([answer, ...shuffle(near.slice(0, 4)).slice(0, 3)]), ...extra };
   }
+  const [a, b] = Math.random() < 0.5 ? [n, k] : [k, n];
+  const product = a * b;
+  if (type === 'pad') return { t: 'pad', n, a, b, answer: product, ...extra };
   return withOptions({ t: 'mc', n, a, b, ...extra }, a, b, product);
 }
 
@@ -115,33 +115,24 @@ function pickFacts(facts, n, count) {
   return out;
 }
 
-// סוגי השאלות לפי מקום בשיעור. ביום הלימוד: הרבה ציורים, שיעזרו לחבר בין
-// הלימוד לשאלות. אחר כך: יותר כתיבה בעצמו, שהיא המבחן האמיתי.
-const LEARN_TYPES = ['pic', 'mc', 'pic', 'seq', 'mc', 'pad', 'pic', 'mc', 'pad', 'seq', 'pad', 'mc'];
-const DRILL_TYPES = ['mc', 'pad', 'pic', 'miss', 'pad', 'mc', 'seq', 'pad', 'mc', 'pad', 'miss', 'pic'];
+// ביום הלימוד: קודם בחירה ורצף (קל יותר, מיד אחרי הלימוד), ואז הקלדה.
+// בשאר הימים: יותר הקלדה — לזכור לבד הוא המבחן האמיתי.
+const LEARN_TYPES = ['mc', 'mc', 'seq', 'pad', 'mc', 'pad', 'mc', 'seq', 'pad', 'pad', 'mc', 'pad'];
+const DRILL_TYPES = ['mc', 'pad', 'seq', 'mc', 'pad', 'mc', 'pad', 'pad', 'seq', 'pad', 'mc', 'pad'];
 
-// תוכנית השאלות: current = הכפולה הנוכחית, others = כפולות קודמות לחזרה
-function buildQuiz(facts, { current, others = [], count = 10, learnDay = false, reviewShare = 30 }) {
-  const reviewCount = others.length && !learnDay ? Math.round(count * (reviewShare / 100)) : 0;
-  const mainCount = count - reviewCount;
+// תוכנית השאלות על הכפולה הנוכחית בלבד (יום הלימוד והימים שאחריו)
+function buildQuiz(facts, { current, count = 10, learnDay = false }) {
   const types = learnDay ? LEARN_TYPES : DRILL_TYPES;
-  const qs = pickFacts(facts, current, mainCount).map((k, i) => question(types[i % types.length], current, k, { role: 'main' }));
-  // חזרה: מהכפולות הקודמות, עדיפות לחלשות
-  const ranked = others.map(n => ({ n, pct: tableState(facts, n).pct })).sort((x, y) => x.pct - y.pct);
-  for (let i = 0; i < reviewCount; i++) {
-    const n = ranked[i % ranked.length].n;
-    const [k] = pickFacts(facts, n, 1);
-    qs.push(question(['mc', 'pad', 'pad', 'miss'][i % 4], n, k, { role: 'review' }));
-  }
-  // ביום לימוד השאלה הראשונה היא ציור — המשך ישיר של הלימוד
-  if (learnDay) return [qs[0], ...shuffle(qs.slice(1))];
-  return shuffle(qs);
+  const qs = pickFacts(facts, current, count).map((k, i) => ({ q: question(types[i % types.length], current, k, { role: 'main' }), i }));
+  if (!learnDay) return shuffle(qs.map(x => x.q));
+  // ביום הלימוד שומרים על הסדר: הבחירות בהתחלה, ההקלדות בהמשך
+  return qs.map(x => x.q);
 }
 
 // חזרה על כל הכפולות שנלמדו. כדי לא להעמיס, התרגול נשאר באותו אורך, ובכל
 // יום נכנסות עד maxTables כפולות: קודם החלשות, ואחריהן אלה שלא חזרו עליהן הכי הרבה זמן.
 // lastSeen = { n: 'YYYY-MM-DD' } — מתי הכפולה הופיעה לאחרונה בתרגול.
-const MIX_TYPES = ['mc', 'pad', 'miss', 'pad', 'mc', 'seq', 'pad', 'pic'];
+const MIX_TYPES = ['mc', 'pad', 'pad', 'seq', 'mc', 'pad'];
 function pickMixTables(facts, tables, maxTables = 4, lastSeen = {}) {
   if (tables.length <= maxTables) return tables.slice();
   const ranked = tables.map(n => ({ n, pct: tableState(facts, n).pct, seen: lastSeen[n] || '' }));
@@ -171,4 +162,4 @@ function retryOf(step) {
 }
 
 module.exports = { THEMES, TABLES, SUGGESTED_ORDER, STATUS_HE, caption, factKey, status, record, tableState,
-  distractors, question, pickFacts, buildQuiz, buildMix, pickMixTables, retryOf, MASTER_STREAK };
+  distractors, question, QUESTION_TYPES, pickFacts, buildQuiz, buildMix, pickMixTables, retryOf, MASTER_STREAK };

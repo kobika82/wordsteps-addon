@@ -128,7 +128,7 @@ function markLearned(store, child, id, step) {
 }
 
 // אילו מספרים נכפלו בשאלה — לעדכון השליטה בעובדה
-function factOf(st) { return st.t === 'seq' ? [st.answer / st.n, st.n] : [st.a, st.b]; }
+function factOf(st) { return [st.a, st.b]; }
 
 function answer(store, child, id, step, value) {
   const s = ownSession(store, child, id);
