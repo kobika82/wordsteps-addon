@@ -1,4 +1,8 @@
-# WordSteps — תוסף Home Assistant
+# WordSteps ולוח הכפל — תוספי Home Assistant
+
+בריפו יש שני תוספים נפרדים: **WordSteps** (אנגלית, בתיקייה `wordsteps/`) ו**לוח הכפל** (בתיקייה `kefel/`, תיעוד: [kefel/DOCS.md](kefel/DOCS.md)). לכל אחד פרופילי ילדים, כוכבים ופרסים משלו.
+
+## WordSteps
 
 אפליקציה ללימוד אוצר מילים באנגלית לילדים, לפי האפיון (PRD) שסופק. התיעוד למשתמש: [wordsteps/DOCS.md](wordsteps/DOCS.md).
 
@@ -38,3 +42,15 @@ cd wordsteps && node dev.js
 
 ואז `http://localhost:8790/?as=admin` (מנהל) או `http://localhost:8790/?as=kid1` (ילד לדוגמה).
 במצב פיתוח אין IP-guard ואין התראות אמיתיות. לחיבור ל-HA אמיתי: `HA_URL` + `HA_TOKEN`; ל-Gemini: `GEMINI_API_KEY`.
+
+## לוח הכפל
+
+```bash
+cd kefel && npm test
+```
+
+```bash
+cd kefel && node dev.js
+```
+
+ואז `http://localhost:8791/?as=admin` (הורה) או `http://localhost:8791/?as=kid1` (ילד לדוגמה, נפתחה לו כפולות של 3). הנתונים ב-`dev-data-kefel/`.

@@ -1,0 +1,24 @@
+name: לוח הכפל
+version: "0.1.0"
+slug: kefel
+description: לימוד לוח הכפל לילדים — כפולה חדשה בכל פעם באישור הורה, שלב לימוד, שאלות ותוכנית כוכבים
+arch:
+  - aarch64
+  - amd64
+  - armv7
+startup: application
+boot: auto
+init: false
+ingress: true
+ingress_port: 8099
+panel_icon: mdi:multiplication-box
+panel_title: לוח הכפל
+panel_admin: false
+homeassistant_api: true
+hassio_api: true
+options:
+  admin_users: []
+schema:
+  admin_users:
+    - str
+  panel_url: str?
