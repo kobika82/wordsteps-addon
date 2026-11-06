@@ -15,6 +15,7 @@ const sources = require('./sources');
 const aireview = require('./aireview');
 const R = require('./reports');
 const RW = require('./rewards');
+const QZ = require('./quiz');
 const scheduler = require('./scheduler');
 const { HttpError } = U;
 
@@ -193,8 +194,11 @@ route('GET', '/api/me', 'any', async (ctx) => {
 route('GET', '/api/child/home', 'child', async ({ child }) => {
   const prog = store.childProgress(child.id);
   const learned = Object.values(prog).filter(r => r.sessions > 0).length;
+  const quiz = QZ.openFor(store, child.id);
   return { child: { name: child.name, gender: child.gender, stars: child.stars || 0 },
-    starsIntro: !!child.starsIntroSentAt && !child.starsIntroSeen, learned, ...L.homeState(store, child) };
+    starsIntro: !!child.starsIntroSentAt && !child.starsIntroSeen, learned,
+    quiz: quiz ? { id: quiz.id, total: quiz.questions.length, step: quiz.answers.length } : null,
+    ...L.homeState(store, child) };
 });
 route('POST', '/api/child/lesson/start', 'child', async ({ child, body }) => L.startLesson(store, child, body));
 route('POST', '/api/child/lesson/:id/answer', 'child', async ({ child, params, body }) => L.answer(store, child, params.id, body.step, body));
@@ -311,6 +315,80 @@ route('POST', '/api/stars/launch', 'admin', async ({ body }) => {
   }
   store.save();
   return { sent, skipped, children: store.data.children.length };
+});
+
+// ---------- מבדק ----------
+// מדידה בלבד: לא מזיז את לוח החזרות, לא מזכה בכוכבים, לא נחשב שיעור יומי.
+
+// כמה מילים אפשר לבדוק לכל ילד — כדי שההורה ידע מה הוא מתחיל
+route('GET', '/api/quiz/pool', 'admin', async () => ({
+  children: store.data.children.filter(c => c.active).map(c => ({
+    id: c.id, name: c.name, words: QZ.learned(store, c.id).length,
+    open: !!QZ.openFor(store, c.id),
+  })),
+}));
+
+route('POST', '/api/children/:id/quiz', 'admin', async ({ params, body }) => {
+  const child = store.data.children.find(c => c.id === Number(params.id));
+  if (!child) throw new HttpError(404, 'ילד לא נמצא');
+  const open = QZ.openFor(store, child.id);
+  if (open && !body.replace) throw new HttpError(409, 'כבר יש מבדק פתוח לילד הזה');
+  if (open) { open.status = 'done'; open.finishedAt = U.now().toISOString(); }
+  const q = QZ.create(store, child, Number(body.count) || 0);
+  if (q.error) throw new HttpError(400, q.error);
+  const g = child.gender;
+  const verb = g === 'f' ? 'מוכנה' : g === 'm' ? 'מוכן' : 'מוכנים';
+  const r = child.notifyService ? await scheduler.send(store, {
+    childId: child.id, kind: 'quiz', service: child.notifyService,
+    title: 'WordSteps 📝 מבדק',
+    message: `${child.name}, יש מבדק קצר על המילים שלמדת — ${q.questions.length} מילים. ${verb}?`,
+  }) : { ok: false, error: 'לא שויך מכשיר' };
+  return { quiz: QZ.summary(store, q), notified: r.ok, error: r.error };
+});
+
+route('DELETE', '/api/quiz/:id', 'admin', async ({ params }) => {
+  const i = store.data.quizzes.findIndex(q => q.id === Number(params.id));
+  if (i < 0) throw new HttpError(404, 'מבדק לא נמצא');
+  store.data.quizzes.splice(i, 1);
+  store.save();
+  return { ok: true };
+});
+
+// רשימת המבדקים להורה, עם פירוט המילים שנפלו
+route('GET', '/api/quizzes', 'admin', async ({ query }) => {
+  const cid = query.get('childId');
+  return store.data.quizzes
+    .filter(q => !cid || String(q.childId) === cid)
+    .slice(0, 40)
+    .map(q => QZ.summary(store, q));
+});
+
+route('GET', '/api/child/quiz', 'child', async ({ child }) => QZ.forChild(QZ.openFor(store, child.id)));
+
+// התוצאה נקראת ולא נענית: קריאה לנתיב התשובות בלי בחירה הייתה נרשמת כטעות
+route('GET', '/api/child/quiz/:id/result', 'child', async ({ child, params }) => {
+  const q = QZ.byId(store, params.id);
+  if (!q || q.childId !== child.id) throw new HttpError(404, 'מבדק לא נמצא');
+  return QZ.score(q);
+});
+
+route('POST', '/api/child/quiz/:id/answer', 'child', async ({ child, params, body }) => {
+  const q = QZ.byId(store, params.id);
+  if (!q || q.childId !== child.id) throw new HttpError(404, 'מבדק לא נמצא');
+  const res = QZ.answer(store, q, body.choice);
+  if (res.done) {
+    const s = store.data.settings;
+    const svc = s.adminNotifyService;
+    if (svc) {
+      const sc = QZ.score(q);
+      scheduler.send(store, { childId: child.id, kind: 'quiz-done', service: svc,
+        title: 'WordSteps 📝 מבדק הושלם',
+        message: `${child.name} סיימה מבדק: ${sc.right} מתוך ${sc.total} (${sc.pct}%).`
+          + (sc.wrong.length ? `\nנפלו: ${sc.wrong.slice(0, 8).map(w => w.en).join(', ')}` : ''),
+      }).catch(e => console.error('quiz notify', e.message));
+    }
+  }
+  return res;
 });
 
 // הילד מסמן שראה את מסך ההסבר, כדי שלא יקפוץ שוב בכל כניסה

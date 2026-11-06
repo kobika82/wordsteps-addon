@@ -23,6 +23,7 @@
     WS.route('/progress', progress);
     WS.route('/rewards', rewards);
     WS.route('/stars-intro', starsIntro);
+    WS.route('/quiz', quiz);
     WS.route('/lesson', () => WS.go('#/'));
   };
 
@@ -73,10 +74,69 @@
         h('h2', 'עוד אין שיעור מוכן'),
         h('p', 'השיעור הבא יופיע כאן ממש בקרוב. נתראה! 😊'));
     }
+    // המבדק יושב מעל השיעור: ההורה ביקש אותו, והוא קצר
+    const quizCard = d.quiz ? h('div.kid-card.center',
+      h('div', { style: { fontSize: '64px' } }, '📝'),
+      h('h2', d.quiz.step ? 'יש מבדק באמצע' : 'יש לך מבדק'),
+      h('p', d.quiz.step
+        ? `${d.quiz.step} מתוך ${d.quiz.total} מילים. נמשיך מאיפה שעצרנו.`
+        : `${d.quiz.total} מילים שכבר ${g('למדת', 'למדת', 'למדתם')}. רק לבחור את הפירוש הנכון.`),
+      h('button.big-btn.purple', { onclick: () => WS.go('#/quiz') },
+        d.quiz.step ? 'להמשיך במבדק ▶' : 'מתחילים 📝')) : null;
+
     shell(h('div',
       h('div.hello', `היי ${d.child.name}! 👋`),
       h('p.muted', d.learned ? `${g('למדת', 'למדת', 'למדתם')} כבר ${d.learned} מילים באנגלית` : 'מוכנים להתחיל ללמוד אנגלית?'),
-      card), 'home');
+      quizCard, card), 'home');
+  }
+
+  // ---------- מבדק ----------
+  // מסך אחד, שאלה אחת בכל פעם: מילה באנגלית וארבעה פירושים. בלי כוכבים
+  // ובלי השפעה על לוח החזרות — זו מדידה, לא שיעור.
+  async function quiz() {
+    const d = await WS.get('child/quiz');
+    if (!d) return WS.go('#/');
+    if (!d.question) return quizDone(d.id);
+
+    const pct = Math.round((d.step / d.total) * 100);
+    const pick = async (opt, btns) => {
+      btns.forEach((b) => (b.disabled = true));
+      const r = await WS.post(`child/quiz/${d.id}/answer`, { choice: opt });
+      btns.forEach((b) => {
+        if (b.dataset.opt === r.correct) b.classList.add('right');
+        else if (b.dataset.opt === opt && !r.ok) b.classList.add('wrong');
+      });
+      setTimeout(() => (r.done ? quizDone(d.id, r) : quiz()), r.ok ? 500 : 1400);
+    };
+
+    const btns = d.question.options.map((o) => h('button.opt', { dir: 'rtl', 'data-opt': o,
+      onclick: () => pick(o, btns) }, o));
+
+    shell(h('div',
+      h('div.bar', h('i', { style: { width: pct + '%' } })),
+      h('p.muted.center', `מילה ${d.step + 1} מתוך ${d.total}`),
+      h('div.kid-card',
+        h('div.q-title', 'מה הפירוש של המילה?'),
+        h('div.q-word', h('span.word-en.en', { lang: 'en', dir: 'ltr' }, d.question.en), WS.speakBtn(d.question.en)),
+        h('div.opts', btns))), 'home');
+    WS.speak(d.question.en);
+  }
+
+  async function quizDone(id, res) {
+    const r = res || await WS.get(`child/quiz/${id}/result`).catch(() => null);
+    const pct = r ? r.pct : 0;
+    const face = pct >= 90 ? '🏆' : pct >= 70 ? '🎉' : '💪';
+    shell(h('div',
+      h('div.kid-card.center',
+        h('div', { style: { fontSize: '64px' } }, face),
+        h('h2', 'סיימת את המבדק!'),
+        h('p.big', r ? `${r.right} מתוך ${r.total}` : ''),
+        h('p.muted', pct >= 90 ? 'כמעט הכול נכון. מרשים!' : pct >= 70 ? 'יפה מאוד!' : 'יש עוד מה לחזק — וזה בסדר גמור.'),
+        r && r.wrong && r.wrong.length ? h('div', { style: { marginTop: '14px', textAlign: 'right' } },
+          h('h3', 'מילים לחזור עליהן'),
+          h('div.wlist', r.wrong.slice(0, 12).map((w) =>
+            h('div.w', h('span.en', { lang: 'en', dir: 'ltr' }, w.en), h('span.grow', w.he))))) : null,
+        h('button.big-btn', { style: { marginTop: '14px' }, onclick: () => WS.go('#/') }, 'חזרה לבית'))), 'home');
   }
 
   async function progress() {

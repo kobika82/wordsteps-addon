@@ -228,8 +228,57 @@
     const hardCard = hard.length ? h('div.card', h('h2', '⚠️ מילים קשות'),
       hard.map(c => h('div', { style: { marginBottom: '8px' } }, h('b', c.name + ': '),
         h('span.chips', c.hard.map(w => h('span.chip', en(w.en), ` — ${w.he} (${w.wrong} טעויות)`)))))) : null;
-    page('לוח בקרה', ...alerts, stockCard(d), approveCard, kids, hardCard, starsBox,
+    const quizBox = await quizCard().catch(() => null);
+    page('לוח בקרה', ...alerts, stockCard(d), approveCard, kids, hardCard, quizBox, starsBox,
       h('p.small.muted', `מאגר המילים: ${d.bank.total} מילים, ${d.bank.approved} מאושרות. אזור זמן: ${d.status.timeZone}.`));
+  }
+
+  // ---------------- מבדק ----------------
+  // מדידה ולא שיעור: לא מזיז את לוח החזרות ולא מזכה בכוכבים, כדי שלא ישנה
+  // בדיוק את מה שהוא בא למדוד.
+  async function quizCard() {
+    const [pool, past] = await Promise.all([WS.get('quiz/pool'), WS.get('quizzes')]);
+    const box = h('div.card', h('h2', '📝 מבדק'),
+      h('p.small.muted', 'בדיקה של המילים שהילד כבר למד: מילה באנגלית וארבעה פירושים בעברית. ' +
+        'מדידה בלבד — לא משנה את לוח החזרות ולא מזכה בכוכבים.'));
+
+    const rows = pool.children.map((c) => {
+      const count = h('select', h('option', { value: '0' }, 'כל המילים (' + c.words + ')'),
+        ...[10, 20, 30, 50].filter((n) => n < c.words).map((n) => h('option', { value: String(n) }, n + ' מילים')));
+      const send = h('button.btn.primary', { disabled: c.words < 4, onclick: (e) => WS.busy(e.currentTarget, async () => {
+        if (c.open && !confirm(c.name + ' באמצע מבדק קודם. להתחיל חדש במקומו?')) return;
+        const r = await WS.post(`children/${c.id}/quiz`, { count: +count.value, replace: true });
+        WS.toast(r.notified ? 'נשלח ל' + c.name : 'נוצר, אבל ההתראה נכשלה: ' + (r.error || ''), !r.notified);
+        dashboard();
+      }) }, 'שלח מבדק');
+      return h('tr',
+        h('td', h('b', c.name)),
+        h('td', c.words < 4 ? h('span.muted', 'פחות מ-4 מילים שנלמדו') : c.words + ' מילים שנלמדו'),
+        h('td', c.open ? h('span.badge.warn', 'מבדק פתוח') : ''),
+        h('td', count), h('td', send));
+    });
+    box.appendChild(rows.length ? h('div.table-wrap', h('table.t', ...rows)) : h('p.muted', 'אין ילדים פעילים.'));
+
+    const done = past.filter((q) => q.answered);
+    if (done.length) {
+      box.append(h('h3', { style: { marginTop: '14px' } }, 'תוצאות'),
+        h('div.table-wrap', h('table.t',
+          h('tr', h('th', 'ילד'), h('th', 'מתי'), h('th', 'ציון'), h('th', 'מילים שנפלו'), h('th', '')),
+          done.slice(0, 10).map((q) => h('tr',
+            h('td', q.childName),
+            h('td', WS.fmtTime(q.finishedAt || q.createdAt)),
+            h('td', q.status === 'done'
+              ? h('b', `${q.right}/${q.total}`) : `${q.right}/${q.answered} (באמצע)`),
+            h('td', q.wrong.length
+              ? h('span.chips', q.wrong.slice(0, 10).map((w) => h('span.chip', en(w.en), ' — ' + w.he)))
+              : h('span.muted', 'הכול נכון')),
+            h('td', h('button.btn.sm.ghost', { onclick: async (e) => {
+              if (!confirm('למחוק את רישום המבדק?')) return;
+              await WS.busy(e.currentTarget, () => WS.del(`quiz/${q.id}`));
+              dashboard();
+            } }, 'מחיקה')))))));
+    }
+    return box;
   }
 
   // ---------------- ילדים ----------------

@@ -9,7 +9,7 @@ const KEEP_BACKUPS = 30;
 function emptyData() {
   return {
     version: 1,
-    seq: { child: 0, word: 0, lesson: 0, item: 0, answer: 0, notif: 0, redemption: 0 },
+    seq: { child: 0, word: 0, lesson: 0, item: 0, answer: 0, notif: 0, redemption: 0, quiz: 0 },
     settings: {
       adminNotifyService: '',     // notify.mobile_app_* של המנהל
       prepTime: '19:00',          // שעת הכנת שיעורי המחר והודעה למנהל
@@ -39,7 +39,8 @@ function emptyData() {
     answers: [],
     notifications: [],
     adminNotices: [],   // הודעות מערכת למנהל (למשל: אין מילים חדשות מתאימות)
-    redemptions: []     // בקשות פרס: pending / given / denied
+    redemptions: [],    // בקשות פרס: pending / given / denied
+    quizzes: []         // מבדקים: בדיקת הפירוש בעברית של המילים שכבר נלמדו
   };
 }
 

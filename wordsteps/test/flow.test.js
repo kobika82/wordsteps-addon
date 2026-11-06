@@ -419,3 +419,62 @@ test('ייבוא מרשימה רשמית בלי AI: איור ותרגום מ-ARA
     assert.equal(banana.distractorsEn.length, 3);
   } finally { global.fetch = realFetch; }
 });
+
+// ---- מבדק ----
+// מדידה ולא שיעור: הוא לא נוגע בלוח החזרות ולא בכוכבים, ובודק רק פירוש בעברית.
+test('מבדק: רק מילים שנלמדו, ארבע אפשרויות, וציון שמפרט מה נפל', async () => {
+  const QZ = require('../server/quiz');
+  // בדיקה קודמת מחקה את הילד, ולכן נוצר כאן פרופיל חדש; ואת ההתקדמות
+  // מזריעים ישירות, כי המבדק נשען על מה שכבר נלמד ולא על ריצת שיעור
+  const srs = require('../server/srs');
+  child = await ok(admin('POST', 'children', { name: 'נועה', age: 8, gender: 'f', level: 'beginner',
+    newPerDay: 4, reviewPerDay: 3, haUserId: 'kid1', exerciseTypes: ['mc'] }));
+  const approved = store.data.words.filter(w => w.status === 'approved' && w.he).slice(0, 6);
+  const prog = store.childProgress(child.id);
+  for (const w of approved) {
+    prog[w.id] = srs.newRecord(w.id, '2026-10-12');
+    srs.applySession(prog[w.id], { correctCount: 1, wrongCount: 0 }, '2026-10-12');
+  }
+  store.save();
+  const learned = QZ.learned(store, child.id);
+  assert.equal(learned.length, approved.length);
+
+  const pool = await ok(admin('GET', 'quiz/pool'));
+  const row = pool.children.find(c => c.id === child.id);
+  assert.equal(row.words, learned.length);
+
+  const before = JSON.parse(JSON.stringify(store.childProgress(child.id)));
+  const starsBefore = child.stars || 0;
+
+  const made = await ok(admin('POST', `children/${child.id}/quiz`, { count: 0 }));
+  assert.equal(made.quiz.total, learned.length);
+
+  let view = await ok(kid('GET', 'child/quiz'));
+  assert.equal(view.total, learned.length);
+  assert.equal(view.question.options.length, 4);
+  assert.ok(!('answer' in view.question) && !('he' in view.question), 'התשובה לא נשלחת לדפדפן');
+
+  // עונים נכון על הכול חוץ מהאחרונה
+  const q = store.data.quizzes.find(x => x.id === view.id);
+  let r;
+  for (let i = 0; i < q.questions.length; i++) {
+    const last = i === q.questions.length - 1;
+    const choice = last ? q.questions[i].options.find(o => o !== q.questions[i].he) : q.questions[i].he;
+    r = await ok(kid('POST', `child/quiz/${view.id}/answer`, { choice }));
+  }
+  assert.equal(r.done, true);
+  assert.equal(r.total, learned.length);
+  assert.equal(r.right, learned.length - 1);
+  assert.equal(r.wrong.length, 1);
+  assert.equal(r.wrong[0].he, q.questions[q.questions.length - 1].he);
+
+  // המדידה לא שינתה את הלמידה
+  assert.deepEqual(store.childProgress(child.id), before, 'המבדק לא נוגע בלוח החזרות');
+  assert.equal(child.stars || 0, starsBefore, 'המבדק לא מזכה בכוכבים');
+
+  // אין יותר מבדק פתוח, והתוצאה נשמרת להורה
+  assert.equal(await ok(kid('GET', 'child/quiz')), null);
+  const list = await ok(admin('GET', 'quizzes?childId=' + child.id));
+  assert.equal(list[0].status, 'done');
+  assert.equal(list[0].right, learned.length - 1);
+});
