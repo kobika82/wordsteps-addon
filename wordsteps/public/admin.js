@@ -243,8 +243,10 @@
         'מזכה בכוכבים כמו שיעור יומי, ולא משנה את לוח החזרות. רק מכאן אפשר לפתוח מבדק.'));
 
     const rows = pool.children.map((c) => {
-      const count = h('select', h('option', { value: '0' }, 'כל המילים (' + c.words + ')'),
-        ...[10, 20, 30, 50].filter((n) => n < c.words).map((n) => h('option', { value: String(n) }, n + ' מילים')));
+      // 20 מילים הן מבדק רגיל, ולכן הן הראשונות ברשימה ונבחרות כברירת מחדל
+      const count = h('select',
+        ...[20, 10, 30, 50, 100].filter((n) => n < c.words).map((n) => h('option', { value: String(n) }, n + ' מילים')),
+        h('option', { value: '0' }, 'כל המילים (' + c.words + ')'));
       const send = h('button.btn.primary', { disabled: c.words < 4, onclick: (e) => WS.busy(e.currentTarget, async () => {
         if (c.open && !confirm(c.name + ' באמצע מבדק קודם. להתחיל חדש במקומו?')) return;
         const r = await WS.post(`children/${c.id}/quiz`, { count: +count.value, replace: true });

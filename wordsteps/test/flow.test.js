@@ -446,8 +446,13 @@ test('מבדק: רק מילים שנלמדו, ארבע אפשרויות, וצי�
   const before = JSON.parse(JSON.stringify(store.childProgress(child.id)));
   const starsBefore = child.stars || 0;
 
-  const made = await ok(admin('POST', `children/${child.id}/quiz`, { count: 0 }));
-  assert.equal(made.quiz.total, learned.length);
+  // ברירת המחדל היא 20 מילים; כאן נלמדו פחות, ולכן המבדק מכסה את כולן
+  const dflt = await ok(admin('POST', `children/${child.id}/quiz`, { replace: true }));
+  assert.equal(dflt.quiz.total, Math.min(QZ.DEFAULT_COUNT, learned.length));
+  assert.equal(QZ.DEFAULT_COUNT, 20);
+
+  const made = await ok(admin('POST', `children/${child.id}/quiz`, { count: 0, replace: true }));
+  assert.equal(made.quiz.total, learned.length, 'count=0 הוא כל המילים');
 
   let view = await ok(kid('GET', 'child/quiz'));
   assert.equal(view.total, learned.length);

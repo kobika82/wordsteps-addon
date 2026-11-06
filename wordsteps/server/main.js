@@ -334,7 +334,8 @@ route('POST', '/api/children/:id/quiz', 'admin', async ({ params, body }) => {
   const open = QZ.openFor(store, child.id);
   if (open && !body.replace) throw new HttpError(409, 'כבר יש מבדק פתוח לילד הזה');
   if (open) { open.status = 'done'; open.finishedAt = U.now().toISOString(); }
-  const q = QZ.create(store, child, Number(body.count) || 0);
+  // 20 מילים הן מבדק אחד. אפשר לבקש אחרת, ו-0 הוא "כל מה שנלמד".
+  const q = QZ.create(store, child, body.count == null ? QZ.DEFAULT_COUNT : Number(body.count));
   if (q.error) throw new HttpError(400, q.error);
   const g = child.gender;
   const verb = g === 'f' ? 'מוכנה' : g === 'm' ? 'מוכן' : 'מוכנים';

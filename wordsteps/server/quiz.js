@@ -52,7 +52,10 @@ function optionsFor(item, pool) {
   return shuffle([answer, ...dis.slice(0, 3)]);
 }
 
-// בניית מבדק. count ריק או 0 = כל המילים שנלמדו.
+// אורך מבדק רגיל. מספיק כדי למדוד, קצר מספיק כדי שילד יסיים בישיבה אחת.
+const DEFAULT_COUNT = 20;
+
+// בניית מבדק. count של 0 = כל המילים שנלמדו.
 function build(store, child, count) {
   const pool = learned(store, child.id);
   if (pool.length < 4) return { error: 'צריך לפחות 4 מילים שנלמדו כדי לבנות מבדק' };
@@ -157,4 +160,4 @@ function summary(store, q) {
     poolSize: q.poolSize, ...score(q) };
 }
 
-module.exports = { learned, build, create, openFor, byId, forChild, answer, score, summary };
+module.exports = { DEFAULT_COUNT, learned, build, create, openFor, byId, forChild, answer, score, summary };
