@@ -26,7 +26,8 @@ const admin = (m, p, b) => call('admin', m, p, b);
 const kid = (m, p, b) => call('kid1', m, p, b);
 
 // עונה על כל השלבים; wrongSteps = אילו שאלות לענות בכוונה לא נכון
-async function playAll(view, wrongSteps = new Set()) {
+async function playAll(view, wrongSteps = new Set(), who = 'kid1') {
+  const kid = (m, p, b) => call(who, m, p, b);
   let plan = view.plan;
   for (let i = 0; i < plan.length; i++) {
     const st = plan[i];
@@ -115,34 +116,6 @@ test('תרגול שלא הסתיים נסגר למחרת', async () => {
   assert.strictEqual(home.mode, 'daily');
 });
 
-test('כפולה שנייה: החזרה כוללת את הכפולה הקודמת', async () => {
-  await admin('POST', `children/${childId}/unlock`, { n: 4 });
-  const v1 = (await kid('POST', 'child/session/start', {})).data;
-  assert.strictEqual(v1.plan[0].t, 'learn');
-  await playAll(v1);
-  U.setNow(() => new Date('2026-11-11T10:00:00+02:00'));
-  const v2 = (await kid('POST', 'child/session/start', {})).data;
-  assert.ok(v2.plan.some(s => s.role === 'review' && s.n === 3), 'יש שאלות חזרה מכפולות של 3');
-  assert.ok(v2.plan.filter(s => s.role === 'main').every(s => s.n === 4));
-  await playAll(v2);
-});
-
-test('הודעה להורה כשהילד שולט בכפולה', async () => {
-  const facts = store.childFacts(childId);
-  for (let k = 1; k <= 10; k++) for (let i = 0; i < 3; i++) M.record(facts, k, 4, true, '2026-11-11');
-  U.setNow(() => new Date('2026-11-12T10:00:00+02:00'));
-  const v = (await kid('POST', 'child/session/start', {})).data;
-  const sum = await playAll(v);
-  assert.strictEqual(sum.ready, true);
-  await new Promise(r => setTimeout(r, 50));
-  const dash = (await admin('GET', 'dashboard')).data;
-  assert.ok(dash.notices.some(n => /שולט בכפולות של 4/.test(n.text)));
-  // פעם אחת בלבד
-  U.setNow(() => new Date('2026-11-15T10:00:00+02:00'));
-  const v2 = (await kid('POST', 'child/session/start', {})).data;
-  assert.strictEqual((await playAll(v2)).ready, false);
-});
-
 test('פרס: יעד, בקשה, דחייה מחזירה כוכבים; פרס בדיחה לא ניתן לבקשה', async () => {
   const c = store.child(childId);
   c.stars = 50;
@@ -169,4 +142,42 @@ test('תצוגה מקדימה להורה לא שומרת כלום', async () => 
   const p = (await admin('POST', 'preview', { n: 7 })).data;
   assert.strictEqual(p.plan[0].t, 'learn');
   assert.strictEqual(store.data.sessions.length, before);
+});
+
+test('שלבים: יום לימוד, יומיים על הכפולה לבד, ואז חזרה על כל הכפולות', async () => {
+  const k2 = (m, p, b) => call('kid2', m, p, b);
+  const day = d => U.setNow(() => new Date(d + 'T10:00:00+02:00'));
+  const c = (await admin('POST', 'children', { name: 'נועה', gender: 'f', haUserId: 'kid2', days: [0, 1, 2, 3, 4, 5, 6] })).data;
+  await admin('POST', `children/${c.id}/unlock`, { n: 2 });
+  const run = async (d, expectPhase) => {
+    day(d);
+    const home = (await k2('GET', 'child/home')).data;
+    assert.strictEqual(home.phase, expectPhase, d);
+    const v = (await k2('POST', 'child/session/start', {})).data;
+    const sum = await playAll(v, new Set(), 'kid2');
+    return { v, sum };
+  };
+  let r = await run('2026-11-16', 'learn');
+  assert.strictEqual(r.v.plan[0].t, 'learn');
+  r = await run('2026-11-17', 'solo');
+  assert.ok(r.v.plan.every(s => s.n === 2 && s.t !== 'learn'));
+  assert.strictEqual(r.sum.ready, false);
+  // יום שהוחמץ לא "שורף" יום מהכפולה לבד
+  r = await run('2026-11-19', 'solo');
+  assert.strictEqual(r.sum.ready, true, 'בסוף ימי הכפולה לבד — הודעה להורה');
+  await new Promise(res => setTimeout(res, 50));
+  assert.ok((await admin('GET', 'dashboard')).data.notices.some(n => /סיימה 3 ימי תרגול בכפולות של 2/.test(n.text)));
+  r = await run('2026-11-20', 'mix');
+  assert.ok(r.v.plan.every(s => s.role === 'mix' && s.n === 2));
+  assert.strictEqual(r.sum.ready, false);
+  // כפולה חדשה מתחילה את הסבב מחדש, והימים לבד לא כוללים את הכפולה הקודמת
+  await admin('POST', `children/${c.id}/unlock`, { n: 5 });
+  r = await run('2026-11-21', 'learn');
+  r = await run('2026-11-22', 'solo');
+  assert.ok(r.v.plan.every(s => s.n === 5));
+  r = await run('2026-11-23', 'solo');
+  r = await run('2026-11-24', 'mix');
+  const ns = new Set(r.v.plan.map(s => s.n));
+  assert.ok(ns.has(2) && ns.has(5), 'החזרה כוללת את כל הכפולות שנלמדו');
+  assert.strictEqual(r.v.plan.filter(s => !s.retry).length, 10, 'אורך התרגול לא גדל');
 });

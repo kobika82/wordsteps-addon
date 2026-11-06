@@ -14,10 +14,10 @@ function emptyData() {
       adminNotifyService: '',        // notify.mobile_app_* של ההורה
       adminUserIds: [],              // מנהלים נוספים שהוגדרו מתוך האפליקציה
       questions: 10,                 // שאלות בתרגול היומי (בלי חזרות על טעויות)
-      reviewShare: 30,               // אחוז השאלות מכפולות קודמות, כשיש כאלה
+      soloDays: 2,                   // ימי תרגול על הכפולה החדשה לבד, אחרי יום הלימוד
+      mixMaxTables: 4,               // בחזרה על כל הכפולות: כמה כפולות לכל היותר בתרגול אחד
       notifyAdminSessionDone: true,  // דיווח להורה מיד כשהילד מסיים
-      notifyAdminReady: true,        // הודעה להורה כשהילד שולט בכפולה ואפשר לפתוח חדשה
-      readyThreshold: 80,            // אחוז העובדות בכפולה שנחשבות "נלמדו היטב"
+      notifyAdminReady: true,        // הודעה להורה כשנגמרו ימי הכפולה לבד: לפתוח חדשה או לעבור לחזרה
       notifyChildOnUnlock: true,     // הודעה לילד כשנפתחת לו כפולה חדשה
       notifyAdminDaySummary: false,  // סיכום יומי להורה
       summaryTime: '20:30',          // שעת הסיכום והקנס (אם מוגדר)

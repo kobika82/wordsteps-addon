@@ -138,10 +138,37 @@ function buildQuiz(facts, { current, others = [], count = 10, learnDay = false, 
   return shuffle(qs);
 }
 
+// חזרה על כל הכפולות שנלמדו. כדי לא להעמיס, התרגול נשאר באותו אורך, ובכל
+// יום נכנסות עד maxTables כפולות: קודם החלשות, ואחריהן אלה שלא חזרו עליהן הכי הרבה זמן.
+// lastSeen = { n: 'YYYY-MM-DD' } — מתי הכפולה הופיעה לאחרונה בתרגול.
+const MIX_TYPES = ['mc', 'pad', 'miss', 'pad', 'mc', 'seq', 'pad', 'pic'];
+function pickMixTables(facts, tables, maxTables = 4, lastSeen = {}) {
+  if (tables.length <= maxTables) return tables.slice();
+  const ranked = tables.map(n => ({ n, pct: tableState(facts, n).pct, seen: lastSeen[n] || '' }));
+  // חצי מהמקומות לחלשות ביותר, השאר לאלה שחיכו הכי הרבה
+  const weakSlots = Math.ceil(maxTables / 2);
+  const out = ranked.slice().sort((a, b) => a.pct - b.pct || a.seen.localeCompare(b.seen)).slice(0, weakSlots).map(x => x.n);
+  for (const x of ranked.slice().sort((a, b) => a.seen.localeCompare(b.seen) || a.pct - b.pct)) {
+    if (out.length >= maxTables) break;
+    if (!out.includes(x.n)) out.push(x.n);
+  }
+  return out;
+}
+function buildMix(facts, { tables, count = 10, maxTables = 4, lastSeen = {} }) {
+  const chosen = pickMixTables(facts, tables, maxTables, lastSeen);
+  // חלוקה שווה בין הכפולות; השארית לחלשות
+  const order = chosen.slice().sort((a, b) => tableState(facts, a).pct - tableState(facts, b).pct);
+  const per = Object.fromEntries(order.map(n => [n, Math.floor(count / order.length)]));
+  for (let i = 0; i < count % order.length; i++) per[order[i]]++;
+  const qs = [];
+  for (const n of order) pickFacts(facts, n, per[n]).forEach(k => qs.push(question(MIX_TYPES[qs.length % MIX_TYPES.length], n, k, { role: 'mix' })));
+  return shuffle(qs);
+}
+
 // חזרה על עובדה שנכשלה, בסוף השיעור, בצורה אחרת: בחירה מתוך ארבע
 function retryOf(step) {
   return question('mc', step.n, step.a === step.n ? step.b : step.a, { role: step.role, retry: true });
 }
 
 module.exports = { THEMES, TABLES, SUGGESTED_ORDER, STATUS_HE, caption, factKey, status, record, tableState,
-  distractors, question, pickFacts, buildQuiz, retryOf, MASTER_STREAK };
+  distractors, question, pickFacts, buildQuiz, buildMix, pickMixTables, retryOf, MASTER_STREAK };

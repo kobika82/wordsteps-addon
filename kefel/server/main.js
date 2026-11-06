@@ -123,6 +123,7 @@ function childRow(c) {
     todayPct: today && today.summary ? today.summary.pct : null,
     weekAccuracy: tot ? Math.round((cor / tot) * 100) : null,
     weekSessions: week.length,
+    phase: c.current ? S.phaseOf(store, c) : null,
     lastNotification: store.data.notifications.find(n => n.childId === c.id) || null,
     suggestNext: M.SUGGESTED_ORDER.find(n => !(c.tables || []).some(t => t.n === n)) || null
   };
@@ -159,7 +160,7 @@ route('POST', '/api/child/session/:id/complete', 'child', async ({ child, params
   const sum = S.complete(store, child, params.id);
   // הדיווח להורה לא חוסם את הילד: כשל בשליחה לא ייכשל את סיום התרגול
   scheduler.notifySessionDone(store, child, sum).catch(e => console.error('done notify', e.message));
-  if (sum.ready) scheduler.notifyReady(store, child, sum.table).catch(e => console.error('ready notify', e.message));
+  if (sum.ready) scheduler.notifyReady(store, child, sum.table, sum.tablePct).catch(e => console.error('ready notify', e.message));
   return sum;
 });
 route('GET', '/api/child/progress', 'child', async ({ child }) => {
@@ -363,8 +364,8 @@ route('PUT', '/api/settings', 'admin', async ({ body }) => {
   const s = store.data.settings;
   if ('adminNotifyService' in body) s.adminNotifyService = /^mobile_app_[a-z0-9_]+$/.test(body.adminNotifyService || '') ? body.adminNotifyService : '';
   if ('questions' in body) s.questions = int(body.questions, 4, 30, 10);
-  if ('reviewShare' in body) s.reviewShare = int(body.reviewShare, 0, 60, 30);
-  if ('readyThreshold' in body) s.readyThreshold = int(body.readyThreshold, 30, 100, 80);
+  if ('soloDays' in body) s.soloDays = int(body.soloDays, 0, 14, 2);
+  if ('mixMaxTables' in body) s.mixMaxTables = int(body.mixMaxTables, 1, 10, 4);
   for (const k of ['notifyAdminSessionDone', 'notifyAdminReady', 'notifyChildOnUnlock', 'notifyAdminDaySummary']) if (k in body) s[k] = !!body[k];
   if ('summaryTime' in body && U.toMinutes(body.summaryTime) != null) s.summaryTime = body.summaryTime;
   if ('adminUserIds' in body && Array.isArray(body.adminUserIds)) s.adminUserIds = body.adminUserIds.map(String);

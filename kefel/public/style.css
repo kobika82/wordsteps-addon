@@ -318,3 +318,6 @@ table.grid10 td { width: 38px; height: 32px; text-align: center; font-size: 13px
 .learn .navbtns .big-btn.ghost { font-size: 18px; white-space: nowrap; }
 .feedback .eq.sm, .feedback .groups { justify-content: flex-end; }
 .kid .kid-card h2 { font-size: 24px; }
+.daydots { display: flex; justify-content: center; align-items: center; gap: 6px; margin-top: 6px; }
+.daydots i { width: 12px; height: 12px; border-radius: 50%; background: #e0f2fe; }
+.daydots i.on { background: #0e7490; }

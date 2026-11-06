@@ -54,6 +54,13 @@
         h('h2', 'יש לך תרגול באמצע'),
         h('p', `נמשיך בדיוק מאיפה ש${g('עצרת', 'עצרת', 'עצרתם')}.`),
         start('להמשיך ▶', '.blue', {}));
+    } else if (d.mode === 'daily' && d.phase === 'mix') {
+      card = h('div.kid-card.center.today',
+        h('div.tag', 'התרגול היומי'),
+        h('div.big-emo', '🔁'),
+        h('h2.table-title', 'חזרה על הכפולות', KF.speakBtn(() => `היום חוזרים על הכפולות ש${g('למדת', 'למדת', 'למדתם')}. בואו נאסוף כוכבים.`)),
+        h('p', `🎯 שאלות מכל הכפולות ש${g('למדת', 'למדת', 'למדתם')} עד עכשיו`),
+        start('בואו נתחיל 🚀', '', { mode: 'daily' }));
     } else if (d.mode === 'daily') {
       card = h('div.kid-card.center.today',
         h('div.tag', 'הכפולה היומית'),
@@ -62,6 +69,7 @@
           ? `היום לומדים את כפולות של ${KF.num(d.table)}. קודם נלמד יחד, ואחר כך שאלות.`
           : `הכפולה היומית: כפולות של ${KF.num(d.table)}. בואו נענה על שאלות ונאסוף כוכבים.`)),
         h('p', d.needLearn ? '📖 קודם נלמד אותה יחד, ואחר כך שאלות' : '🎯 שאלות על הכפולה — כל תשובה נכונה מקרבת כוכבים'),
+        !d.needLearn && d.soloDays ? h('div.daydots', Array.from({ length: 1 + d.soloDays }, (_, i) => h('i' + (i < d.phaseDay ? '.on' : ''))), h('span.small.muted', ` יום ${d.phaseDay} מתוך ${1 + d.soloDays}`)) : null,
         start('בואו נתחיל 🚀', '', { mode: 'daily' }));
     } else if (d.mode === 'done') {
       card = h('div.kid-card.center',
@@ -75,7 +83,7 @@
         h('div.big-emo', '🏖️'),
         h('h2', 'היום אין תרגול'),
         h('p', 'אפשר להתאמן בשביל הכיף — בלי כוכבים 🙂'),
-        start(`אימון בכפולות של ${d.table} 💪`, '.purple', { mode: 'practice' }),
+        start(d.phase === 'mix' ? 'אימון על כל הכפולות 💪' : `אימון בכפולות של ${d.table} 💪`, '.purple', { mode: 'practice' }),
         h('button.big-btn.ghost', { onclick: () => KF.go('#/learn/' + d.table) }, `📖 ללמוד שוב את כפולות של ${d.table}`));
     }
     const goal = d.goal ? h('div.kid-card.goal-mini', { onclick: () => KF.go('#/rewards') },
@@ -231,7 +239,7 @@
     else stage = eq(s.a, s.b, hole, '.big');
 
     const card = h('div.kid-card.center.q',
-      s.retry ? h('div.tag.retry', 'עוד ניסיון 💪') : s.role === 'review' ? h('div.tag.review', `חזרה: כפולות של ${s.n}`) : null,
+      s.retry ? h('div.tag.retry', 'עוד ניסיון 💪') : s.role === 'review' || s.role === 'mix' ? h('div.tag.review', `כפולות של ${s.n}`) : null,
       h('div.q-title', q.title, KF.speakBtn(() => q.say)),
       stage);
     const lock = (on) => card.querySelectorAll('button.opt, .pad button').forEach(b => (b.disabled = on));

@@ -74,3 +74,20 @@ test('כיתוב הציור', () => {
   assert.strictEqual(M.caption(4, 3), '4 סלסלות, בכל אחת 3 תותים');
   assert.strictEqual(M.caption(1, 6), 'קרטון אחד, בכל אחד 6 ביצים');
 });
+
+test('חזרה על הרבה כפולות לא מעמיסה: 10 שאלות, עד 4 כפולות, קודם החלשות', () => {
+  const f = {};
+  for (const n of [2, 3, 4, 5, 6, 10]) for (let k = 1; k <= 10; k++) for (let i = 0; i < 3; i++) M.record(f, k, n, true, 'd');
+  M.record(f, 7, 8, false, 'd');   // כפולות של 8 (ושל 7) — חלשות
+  const tables = [2, 3, 4, 5, 6, 8, 9, 10];
+  for (let i = 0; i < 50; i++) {
+    const q = M.buildMix(f, { tables, count: 10, maxTables: 4 });
+    assert.strictEqual(q.length, 10);
+    const ns = new Set(q.map(x => x.n));
+    assert.ok(ns.size <= 4);
+    assert.ok(ns.has(8) && ns.has(9), 'החלשות תמיד בפנים');
+  }
+  // סבב: כפולה שלא חזרו עליה הכי הרבה זמן נבחרת
+  const picked = M.pickMixTables(f, tables, 4, { 2: '2026-11-20', 3: '2026-11-01', 4: '2026-11-20', 5: '2026-11-20', 6: '2026-11-20', 8: '2026-11-20', 9: '2026-11-20', 10: '2026-11-02' });
+  assert.ok(picked.includes(3) && picked.includes(10));
+});

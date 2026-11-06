@@ -64,7 +64,10 @@
       cur ? h('div.cur-table',
         h('div.big', `${KF.me.meta.themes[cur.n].item} כפולות של ${cur.n}`),
         h('div.small.muted', cur.learnedAt ? `נפתחה ${KF.fmtTime(cur.openedAt).slice(0, 10)} · יודע/ת ${cur.mastered} מתוך 10` : 'נפתחה — שלב הלימוד עוד לא הושלם'),
-        h('div.bar', h('i', { style: { width: cur.pct + '%' } })))
+        h('div.bar', h('i', { style: { width: cur.pct + '%' } })),
+        c.phase ? h('div.small', { style: { marginTop: '6px' } }, c.phase.phase === 'learn' ? '📖 התרגול הבא: יום לימוד'
+          : c.phase.phase === 'solo' ? (c.phase.day === 1 ? `🆕 יום 1 מתוך ${1 + c.phase.solo}: לימוד ושאלות על הכפולה` : `🎯 יום ${c.phase.day} מתוך ${1 + c.phase.solo}: שאלות על הכפולה לבד`)
+          : '🔁 חזרה על כל הכפולות שנלמדו — עד שתפתחו כפולה חדשה') : null)
         : h('p.muted', 'עוד לא נפתחה כפולה.'),
       h('div.row', { style: { margin: '10px 0' } },
         badge(TODAY, c.today), c.todayPct != null ? h('span.badge', c.todayPct + '%') : null,
@@ -135,7 +138,7 @@
           h('tr', h('th', 'תאריך'), h('th', 'סוג'), h('th', 'כפולה'), h('th', 'נכון'), h('th', 'כוכבים'), h('th', 'טעויות')),
           d.sessions.map(s => h('tr',
             h('td', KF.fmtDate(s.date)), h('td', s.kind === 'daily' ? 'יומי' : 'אימון נוסף', s.learned ? h('span.badge.info', ' + לימוד') : null),
-            h('td', '×' + s.table), h('td', `${s.correct}/${s.total} (${s.pct}%)`), h('td', s.stars ? '+' + s.stars : '—'),
+            h('td', s.phase === 'mix' ? 'חזרה על הכל' : '×' + s.table), h('td', `${s.correct}/${s.total} (${s.pct}%)`), h('td', s.stars ? '+' + s.stars : '—'),
             h('td', { dir: 'ltr', style: { textAlign: 'right' } }, (s.weak || []).map(w => `${w.a}×${w.b}`).join(', ') || '—')))))
           : h('p.muted', 'עוד אין תרגולים.')),
       h('div.card', h('h2', 'יומן התראות'),
@@ -289,8 +292,8 @@
     const I = {
       service: h('select', h('option', { value: '' }, '— בלי התראות —'), services.services.map(x => h('option', { value: x, selected: x === s.adminNotifyService }, x))),
       questions: h('input', { type: 'number', min: 4, max: 30, value: s.questions, style: { maxWidth: '100px' } }),
-      reviewShare: h('input', { type: 'number', min: 0, max: 60, value: s.reviewShare, style: { maxWidth: '100px' } }),
-      threshold: h('input', { type: 'number', min: 30, max: 100, value: s.readyThreshold, style: { maxWidth: '100px' } }),
+      soloDays: h('input', { type: 'number', min: 0, max: 14, value: s.soloDays ?? 2, style: { maxWidth: '100px' } }),
+      mixMax: h('input', { type: 'number', min: 1, max: 10, value: s.mixMaxTables ?? 4, style: { maxWidth: '100px' } }),
       done: chk(s.notifyAdminSessionDone), ready: chk(s.notifyAdminReady), unlock: chk(s.notifyChildOnUnlock), sum: chk(s.notifyAdminDaySummary),
       sumTime: h('input', { type: 'text', value: s.summaryTime, placeholder: 'HH:MM', style: { maxWidth: '110px' } })
     };
@@ -301,7 +304,7 @@
         h('div.grid2', h('label.f', h('span', 'המכשיר של ההורה'), I.service)),
         h('div.checks', { style: { flexDirection: 'column', marginTop: '10px' } },
           h('label', I.done, 'דיווח מיד כשילד מסיים את התרגול היומי'),
-          h('label', I.ready, 'הודעה כשילד שולט בכפולה ואפשר לפתוח חדשה'),
+          h('label', I.ready, 'הודעה בסוף ימי הכפולה לבד: לפתוח כפולה חדשה, או שתתחיל חזרה'),
           h('label', I.unlock, 'הודעה לילד כשנפתחת לו כפולה חדשה'),
           h('label', I.sum, 'סיכום יומי: מי תרגל ומי לא')),
         h('div.grid2', { style: { marginTop: '10px' } }, h('label.f', h('span', 'שעת הסיכום היומי (וגם הקנס, אם הוגדר)'), I.sumTime)),
@@ -309,15 +312,16 @@
       h('div.card', h('h2', 'התרגול'),
         h('div.grid3',
           h('label.f', h('span', 'שאלות בתרגול'), I.questions),
-          h('label.f', h('span', 'אחוז שאלות חזרה מכפולות קודמות'), I.reviewShare),
-          h('label.f', h('span', 'מתי "שולט בכפולה" (% מהעובדות)'), I.threshold)),
-        h('p.small.muted', 'שאלה שנענתה לא נכון חוזרת בסוף התרגול בצורה אחרת, ולא נספרת שוב בציון. עובדה נחשבת "ידועה היטב" אחרי שלוש תשובות נכונות ברצף.')),
+          h('label.f', h('span', 'ימים על כפולה חדשה לבד (אחרי יום הלימוד)'), I.soloDays),
+          h('label.f', h('span', 'בחזרה: כמה כפולות לכל היותר בתרגול'), I.mixMax)),
+        h('p.small.muted', 'סדר הימים בכל כפולה חדשה: יום לימוד + שאלות, אחר כך ימים על הכפולה לבד, ואז — עד שתפתחו כפולה חדשה — חזרה על כל הכפולות שנלמדו. בסוף ימי הכפולה לבד תגיע אליכם הודעה. הימים נספרים לפי תרגולים שהושלמו, כך שיום שהוחמץ לא "נשרף".'),
+        h('p.small.muted', 'כדי לא להעמיס, התרגול באותו אורך בכל השלבים. בחזרה נבחרות בכל יום עד כמה כפולות (קודם החלשות, ואז אלה שלא חזרו עליהן הכי הרבה זמן), כך שכולן חוזרות לאורך הימים. שאלה שנענתה לא נכון חוזרת בסוף התרגול, ולא נספרת שוב בציון.')),
       admins.length ? h('div.card', h('h2', 'הורים נוספים'),
         h('p.small.muted', 'מנהלי Home Assistant מזוהים כהורים אוטומטית. כאן אפשר להוסיף משתמשים שאינם מנהלים.'),
         h('div.checks', admins.map(x => h('label', x.cb, x.u.name)))) : null,
       h('button.btn.primary', { onclick: (e) => KF.busy(e.currentTarget, async () => {
         await KF.put('settings', {
-          adminNotifyService: I.service.value, questions: +I.questions.value, reviewShare: +I.reviewShare.value, readyThreshold: +I.threshold.value,
+          adminNotifyService: I.service.value, questions: +I.questions.value, soloDays: +I.soloDays.value, mixMaxTables: +I.mixMax.value,
           notifyAdminSessionDone: I.done.checked, notifyAdminReady: I.ready.checked, notifyChildOnUnlock: I.unlock.checked,
           notifyAdminDaySummary: I.sum.checked, summaryTime: I.sumTime.value,
           adminUserIds: [...s.adminUserIds.filter(id => !admins.some(x => x.u.id === id)), ...admins.filter(x => x.cb.checked).map(x => x.u.id)]

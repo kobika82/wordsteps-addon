@@ -41,6 +41,8 @@ function notice(store, text) {
 function dailyMessage(store, child) {
   const rec = S.tableRec(child, child.current);
   const ready = word(child.gender, 'מוכן', 'מוכנה', 'מוכנים');
+  const ph = S.phaseOf(store, child);
+  if (ph && ph.phase === 'mix') return `היי ${child.name}! היום חוזרים על הכפולות ש${word(child.gender, 'למדת', 'למדת', 'למדתם')}. ${ready} לאסוף כוכבים? ⭐`;
   if (rec && !rec.learnedAt) return `היי ${child.name}! היום לומדים את כפולות של ${child.current} 🎉 ${ready}?`;
   return `היי ${child.name}! מחכות לך שאלות בכפולות של ${child.current}. ${ready} לאסוף כוכבים? ⭐`;
 }
@@ -75,7 +77,7 @@ async function childTick(store, child, p) {
 
 // ---------- דיווח להורה ----------
 function doneMessage(child, sum) {
-  let m = `${child.name} ${word(child.gender, 'סיים', 'סיימה', 'סיימו')} תרגול בכפולות של ${sum.table}`
+  let m = `${child.name} ${word(child.gender, 'סיים', 'סיימה', 'סיימו')} תרגול ${sum.phase === 'mix' ? 'חזרה על כל הכפולות' : 'בכפולות של ' + sum.table}`
     + `${sum.learned ? ' (כולל שלב הלימוד)' : ''}: ${sum.correct} מתוך ${sum.total} נכון (${sum.pct}%)`;
   if (sum.stars) m += ` · +${sum.stars} ⭐`;
   if (sum.weak.length) m += `\nטעויות: ${sum.weak.slice(0, 5).map(w => `${w.a}×${w.b}`).join(', ')}`;
@@ -88,13 +90,15 @@ async function notifySessionDone(store, child, sum) {
     title: 'לוח הכפל — תרגול הושלם', message: doneMessage(child, sum) });
 }
 
-async function notifyReady(store, child, n) {
-  const verb = word(child.gender, 'שולט', 'שולטת', 'שולטים');
-  const text = `${child.name} כבר ${verb} בכפולות של ${n} — אפשר לפתוח כפולה חדשה.`;
+// סוף ימי הכפולה לבד: ההורה מחליט — לפתוח כפולה חדשה, או לתת לחזרה על כל הכפולות להתחיל מחר
+async function notifyReady(store, child, n, pct) {
+  const days = 1 + Math.max(0, Number(store.data.settings.soloDays ?? 2));
+  const text = `${child.name} ${word(child.gender, 'סיים', 'סיימה', 'סיימו')} ${days} ימי תרגול בכפולות של ${n} `
+    + `(${word(child.gender, 'שולט', 'שולטת', 'שולטים')} ב-${pct}% מהעובדות). אפשר לפתוח כפולה חדשה — ואם לא, מהתרגול הבא מתחילה חזרה על כל הכפולות שנלמדו.`;
   notice(store, text);
   const s = store.data.settings;
   if (!s.notifyAdminReady || !s.adminNotifyService) return null;
-  return send(store, { childId: child.id, kind: 'ready', service: s.adminNotifyService, title: 'לוח הכפל — מוכנים להמשיך', message: text });
+  return send(store, { childId: child.id, kind: 'ready', service: s.adminNotifyService, title: 'לוח הכפל — לפתוח כפולה חדשה?', message: text });
 }
 
 function daySummary(store, date) {
@@ -103,7 +107,7 @@ function daySummary(store, date) {
     if (!c.active || !c.current) continue;
     if (!S.isStudyDay(c, date)) { lines.push(`${c.name}: לא יום תרגול`); continue; }
     const s = store.data.sessions.find(x => x.childId === c.id && x.date === date && x.kind === 'daily' && x.status === 'completed');
-    lines.push(s ? `${c.name}: ✅ כפולות של ${s.table} · ${s.summary.pct}%` : `${c.name}: ❌ לא תרגל היום`);
+    lines.push(s ? `${c.name}: ✅ ${s.phase === 'mix' ? 'חזרה על כל הכפולות' : 'כפולות של ' + s.table} · ${s.summary.pct}%` : `${c.name}: ❌ לא תרגל היום`);
   }
   return lines.length ? lines.join('\n') : '';
 }

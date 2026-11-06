@@ -22,13 +22,42 @@ function dailyDone(store, child, date) {
   return todaysSessions(store, child, date).some(s => s.kind === 'daily' && s.status === 'completed');
 }
 
+// באיזה שלב הכפולה הנוכחית:
+//   learn — יום הפתיחה: שלב לימוד ואז שאלות על הכפולה
+//   solo  — הימים שאחריו (soloDays, ברירת מחדל 2): שאלות על הכפולה הזו לבד
+//   mix   — מכאן, עד שההורה פותח כפולה חדשה: חזרה על כל הכפולות שנלמדו
+// ימים נספרים לפי תרגולים יומיים שהושלמו, לא לפי לוח השנה — סוף שבוע או יום שהוחמץ לא "שורפים" יום.
+const soloDays = store => Math.max(0, Number(store.data.settings.soloDays ?? 2));
+function phaseOf(store, child, date = U.today()) {
+  const n = child.current;
+  const rec = tableRec(child, n);
+  if (!rec) return null;
+  if (!rec.learnedAt) return { phase: 'learn', day: 1, solo: soloDays(store) };
+  const before = new Set(store.data.sessions.filter(s => s.childId === child.id && s.table === n && s.kind === 'daily'
+    && s.status === 'completed' && s.date < date).map(s => s.date)).size;
+  const day = before + 1;
+  // יום הלימוד נספר כיום הראשון, גם אם הלימוד קרה היום
+  return { phase: day <= 1 + soloDays(store) ? 'solo' : 'mix', day, solo: soloDays(store) };
+}
+
+function lastSeenTables(store, child) {
+  const seen = {};
+  for (const s of store.data.sessions) {
+    if (s.childId !== child.id || s.status !== 'completed') continue;
+    for (const st of s.plan) if (st.n && (!seen[st.n] || seen[st.n] < s.date)) seen[st.n] = s.date;
+  }
+  return seen;
+}
+
 function homeState(store, child) {
   const date = U.today();
   const n = child.current;
   const facts = store.childFacts(child.id);
   const tables = (child.tables || []).map(t => ({ n: t.n, learned: !!t.learnedAt, pct: M.tableState(facts, t.n).pct }));
   if (!n) return { mode: 'none', tables, date };
-  const base = { table: n, needLearn: !tableRec(child, n)?.learnedAt, state: M.tableState(facts, n), tables, date,
+  const ph = phaseOf(store, child, date);
+  const base = { table: n, needLearn: !tableRec(child, n)?.learnedAt, phase: ph.phase, phaseDay: ph.day, soloDays: ph.solo,
+    mixTables: learnedTables(child).length, state: M.tableState(facts, n), tables, date,
     studyDay: isStudyDay(child, date) };
   const open = inProgress(store, child, date);
   if (open) return { ...base, mode: 'resume', sessionId: open.id, kind: open.kind };
@@ -41,15 +70,18 @@ function view(s) {
   return { id: s.id, kind: s.kind, table: s.table, plan: s.plan, step: s.step, results: s.results };
 }
 
+// אורך התרגול קבוע בכל השלבים, כדי לא להעמיס: גם כשנלמדו הרבה כפולות.
 function buildPlan(store, child, n) {
   const facts = store.childFacts(child.id);
-  const learn = !tableRec(child, n)?.learnedAt;
   const s = store.data.settings;
-  const quiz = M.buildQuiz(facts, {
-    current: n, others: learnedTables(child).filter(x => x !== n), count: Number(s.questions) || 10,
-    learnDay: learn, reviewShare: Number(s.reviewShare) || 0
-  });
-  return learn ? [{ t: 'learn', n }, ...quiz] : quiz;
+  const count = Number(s.questions) || 10;
+  const ph = phaseOf(store, child);
+  if (ph.phase === 'mix') {
+    const tables = learnedTables(child);
+    return M.buildMix(facts, { tables: tables.length ? tables : [n], count, maxTables: Number(s.mixMaxTables) || 4, lastSeen: lastSeenTables(store, child) });
+  }
+  const quiz = M.buildQuiz(facts, { current: n, count, learnDay: ph.phase === 'learn' });
+  return ph.phase === 'learn' ? [{ t: 'learn', n }, ...quiz] : quiz;
 }
 
 function startSession(store, child, { mode } = {}) {
@@ -61,7 +93,7 @@ function startSession(store, child, { mode } = {}) {
   // תרגול יומי רק ביום תרגול ורק פעם אחת; כל השאר הוא אימון נוסף בלי כוכבים
   const kind = mode !== 'practice' && isStudyDay(child, date) && !dailyDone(store, child, date) ? 'daily' : 'practice';
   const s = {
-    id: store.nextId('session'), childId: child.id, date, kind, table: n, plan: buildPlan(store, child, n),
+    id: store.nextId('session'), childId: child.id, date, kind, table: n, phase: phaseOf(store, child, date).phase, plan: buildPlan(store, child, n),
     step: 0, results: {}, status: 'in_progress', createdAt: U.now().toISOString(), completedAt: null, summary: null
   };
   store.data.sessions.push(s);
@@ -148,16 +180,16 @@ function complete(store, child, id) {
   s.status = 'completed';
   s.completedAt = U.now().toISOString();
   s.summary = {
-    total, correct, pct, stars, streak, table: s.table, learned: s.plan.some(x => x.t === 'learn'),
+    total, correct, pct, stars, streak, table: s.table, phase: s.phase || '', learned: s.plan.some(x => x.t === 'learn'),
     weak: [...weakMap.values()], tablePct: tState.pct, message: praise(pct)
   };
-  // הילד שולט בכפולה — סימן להורה שאפשר לפתוח את הבאה. פעם אחת לכל כפולה.
+  // סוף ימי התרגול על הכפולה לבד — זו נקודת ההחלטה של ההורה: לפתוח כפולה חדשה,
+  // או שמחר מתחילה חזרה על כל הכפולות. הודעה אחת לכל כפולה.
   const rec = tableRec(child, s.table);
-  const threshold = Number(store.data.settings.readyThreshold) || 80;
   let ready = false;
-  if (rec && child.current === s.table && tState.pct >= threshold && !rec.readyAt) {
-    rec.readyAt = s.completedAt;
-    ready = true;
+  if (s.kind === 'daily' && rec && child.current === s.table && !rec.readyAt && s.phase !== 'mix') {
+    const ph = phaseOf(store, child, U.addDays(s.date, 1));
+    if (ph && ph.phase === 'mix') { rec.readyAt = s.completedAt; ready = true; }
   }
   store.save();
   return { ...s.summary, kind: s.kind, totalStars: child.stars || 0, ready };
@@ -180,4 +212,4 @@ function previewPlan(store, n, { learn = true } = {}) {
 }
 
 module.exports = { isStudyDay, tableRec, learnedTables, homeState, startSession, markLearned, answer, complete,
-  closeStale, previewPlan, dailyDone, inProgress, factOf };
+  closeStale, previewPlan, dailyDone, inProgress, factOf, phaseOf };
