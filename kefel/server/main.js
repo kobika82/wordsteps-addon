@@ -152,10 +152,12 @@ route('GET', '/api/child/home', 'child', async ({ child }) => ({
   child: { name: child.name, gender: child.gender, stars: child.stars || 0 },
   intro: !child.introSeen, goal: RW.goalOf(store, child), ...S.homeState(store, child),
   // הרצף הנוכחי: כולל היום אם כבר תרגל, אחרת עד יום התרגול הקודם
+  retroBonus: child.retroBonus && !child.retroBonus.seen ? child.retroBonus : null,
   streak: RW.streakOf(store, child, U.today()) || RW.streakOf(store, child, U.addDays(U.today(), -1)),
   streakBonus: Number(RW.starsConf(store).streakBonus) || 0
 }));
 route('POST', '/api/child/intro/seen', 'child', async ({ child }) => { child.introSeen = true; store.save(); return { ok: true }; });
+route('POST', '/api/child/retro-bonus/seen', 'child', async ({ child }) => { if (child.retroBonus) child.retroBonus.seen = true; store.save(); return { ok: true }; });
 route('POST', '/api/child/session/start', 'child', async ({ child, body }) => S.startSession(store, child, body));
 route('POST', '/api/child/session/:id/learned', 'child', async ({ child, params, body }) => S.markLearned(store, child, params.id, Number(body.step)));
 route('POST', '/api/child/session/:id/answer', 'child', async ({ child, params, body }) => S.answer(store, child, params.id, Number(body.step), body.answer));
@@ -461,6 +463,11 @@ async function init() {
     }
   }
   if (options.panel_url) scheduler.setPanelUrl(options.panel_url);
+  // בונוס רצף על תרגולים שקדמו לבונוס — פעם אחת, עם הודעה להורה בלוח הבקרה
+  for (const g of S.retroStreakBonus(store)) {
+    const verb = g.child.gender === 'f' ? 'קיבלה' : g.child.gender === 'm' ? 'קיבל' : 'קיבלו';
+    scheduler.notice(store, `${g.child.name} ${verb} ${g.stars} כוכבים בונוס על הרצף ש${g.child.gender === 'f' ? 'ביצעה' : 'ביצע'} עד היום (${g.dates.length === 1 ? 'יום אחד' : g.dates.length + ' ימים'} עם בונוס: ${g.dates.map(d => d.slice(8, 10) + '/' + d.slice(5, 7)).join(', ')}).`);
+  }
   if (process.env.KEFEL_NO_SCHEDULER !== '1') scheduler.start(store);
 }
 

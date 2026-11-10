@@ -214,5 +214,39 @@ function previewPlan(store, n, { learn = true } = {}) {
   return { id: 0, kind: 'preview', table: n, plan: learn ? [{ t: 'learn', n }, ...quiz] : quiz, step: 0, results: {} };
 }
 
+// בונוס רצף רטרואקטיבי (0.4.1, בקשת המשתמש): תרגולים יומיים שהושלמו לפני שהיה בונוס
+// רצף. לכל אחד שהיה בו רצף של יומיים לפחות — מוסיפים את הבונוס עכשיו.
+// הסימון הוא summary.streakBonus: תרגול שכבר יש לו את השדה (גם 0) לא מקבל שוב,
+// ולכן הפעלה חוזרת לא נותנת פעמיים.
+function retroStreakBonus(store) {
+  const bonus = Number(RW.starsConf(store).streakBonus) || 0;
+  const granted = [];
+  if (!bonus) return granted;
+  for (const child of store.data.children) {
+    const old = store.data.sessions
+      .filter(s => s.childId === child.id && s.kind === 'daily' && s.status === 'completed' && s.summary && !('streakBonus' in s.summary))
+      .sort((a, b) => a.date.localeCompare(b.date));
+    let total = 0;
+    const dates = [];
+    for (const s of old) {
+      const streak = RW.streakOf(store, child, s.date);
+      const add = streak >= 2 ? bonus : 0;
+      s.summary.streak = streak;
+      s.summary.streakBonus = add;
+      s.summary.stars = (s.summary.stars || 0) + add;
+      if (add) { total += add; dates.push(s.date); }
+    }
+    if (total) {
+      child.stars = (child.stars || 0) + total;
+      child.starsEarned = (child.starsEarned || 0) + total;
+      // הילד יראה הודעה אחת במסך הבית
+      child.retroBonus = { stars: total, days: dates.length, seen: false };
+      granted.push({ child, stars: total, dates });
+    }
+  }
+  store.save();
+  return granted;
+}
+
 module.exports = { isStudyDay, tableRec, learnedTables, homeState, startSession, markLearned, answer, complete,
-  closeStale, previewPlan, dailyDone, inProgress, factOf, phaseOf };
+  closeStale, previewPlan, dailyDone, inProgress, factOf, phaseOf, retroStreakBonus };

@@ -113,3 +113,24 @@ test('בונוס רצף: 2 כוכבים קבועים מהיום השני, וסו
   store.data.settings.stars = { streakBonus: 0 };
   assert.strictEqual(RW.starsForLesson(store, 100, 5).streakBonus, 0, 'ההורה יכול לכבות');
 });
+
+test('בונוס רצף רטרואקטיבי: רק על ימים ברצף, פעם אחת בלבד', () => {
+  const S = require('../server/sessions');
+  const child = { id: 1, name: 'שחר', gender: 'm', days: [0, 1, 2, 3, 4], stars: 30, starsEarned: 30 };
+  const sess = (id, date, summary) => ({ id, childId: 1, kind: 'daily', status: 'completed', date, plan: [], summary });
+  const store = { save() {}, data: { settings: {}, children: [child], sessions: [
+    sess(1, '2026-11-04', { stars: 10 }),                   // רביעי — תחילת רצף
+    sess(2, '2026-11-05', { stars: 8 }),                    // חמישי — רצף 2
+    sess(3, '2026-11-08', { stars: 10 }),                   // ראשון — סוף שבוע לא שובר: רצף 3
+    sess(4, '2026-11-09', { stars: 12, streakBonus: 2 })    // כבר קיבל בונוס בגרסה החדשה
+  ] } };
+  const g = S.retroStreakBonus(store);
+  assert.strictEqual(g.length, 1);
+  assert.strictEqual(g[0].stars, 4);
+  assert.deepStrictEqual(g[0].dates, ['2026-11-05', '2026-11-08']);
+  assert.strictEqual(child.stars, 34);
+  assert.strictEqual(child.starsEarned, 34);
+  assert.strictEqual(store.data.sessions[1].summary.stars, 10);
+  assert.strictEqual(S.retroStreakBonus(store).length, 0, 'הפעלה שנייה לא נותנת שוב');
+  assert.strictEqual(child.stars, 34);
+});

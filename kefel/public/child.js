@@ -99,7 +99,13 @@
       h('span.fire', '🔥'),
       h('span', d.streak === 1 ? 'יום אחד ברצף' : `${d.streak} ימים ברצף`),
       d.mode === 'daily' ? h('span.small', ` · ${g('תרגל', 'תרגלי', 'תרגלו')} היום וקבל${g('', 'י', 'ו')} +${d.streakBonus} ⭐ בונוס`) : null) : null;
-    shell(h('div', h('div.hello', `היי ${d.child.name}! 👋`), streak, card, goal, tables), 'home');
+    // הודעה חד-פעמית: בונוס רצף על ימים שתרגל לפני שהיה בונוס
+    const retro = d.retroBonus ? h('div.kid-card.center.retro',
+      h('div.big-emo', '🔥⭐'),
+      h('h2', `+${d.retroBonus.stars} כוכבים בונוס!`),
+      h('p.lead', `בונוס רצף על הימים ש${g('תרגלת', 'תרגלת', 'תרגלתם')} ברצף עד היום. כל הכבוד!`),
+      h('button.big-btn.green', { onclick: async (e) => { await KF.post('child/retro-bonus/seen').catch(() => {}); e.currentTarget.closest('.retro').remove(); } }, 'יש! 🎉')) : null;
+    shell(h('div', h('div.hello', `היי ${d.child.name}! 👋`), retro, streak, card, goal, tables), 'home');
   }
 
   // הסבר קצר בכניסה הראשונה. מוקרא, כי ילד בכיתה ב לא קורא מסך הסבר.
