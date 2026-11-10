@@ -95,3 +95,21 @@ test('חזרה על הרבה כפולות לא מעמיסה: 10 שאלות, עד
   const picked = M.pickMixTables(f, tables, 4, { 2: '2026-11-20', 3: '2026-11-01', 4: '2026-11-20', 5: '2026-11-20', 6: '2026-11-20', 8: '2026-11-20', 9: '2026-11-20', 10: '2026-11-02' });
   assert.ok(picked.includes(3) && picked.includes(10));
 });
+
+test('בונוס רצף: 2 כוכבים קבועים מהיום השני, וסוף שבוע לא שובר את הרצף', () => {
+  const RW = require('../server/rewards');
+  const store = { data: { settings: {}, sessions: [] } };
+  const child = { id: 1, days: [0, 1, 2, 3, 4] };   // ראשון–חמישי
+  const done = d => store.data.sessions.push({ childId: 1, kind: 'daily', status: 'completed', date: d });
+  assert.strictEqual(RW.starsForLesson(store, 100, 1).streakBonus, 0, 'יום ראשון של רצף — בלי בונוס');
+  assert.strictEqual(RW.starsForLesson(store, 100, 2).streakBonus, 2);
+  assert.strictEqual(RW.starsForLesson(store, 100, 9).streakBonus, 2, 'לא גדל עם אורך הרצף');
+  assert.strictEqual(RW.starsForLesson(store, 100, 2).stars, 12);
+  done('2026-11-11'); done('2026-11-12');           // רביעי, חמישי
+  assert.strictEqual(RW.streakOf(store, child, '2026-11-14'), 2, 'שבת ושישי מדולגים');
+  assert.strictEqual(RW.streakOf(store, child, '2026-11-15'), 0, 'ראשון שלא תורגל שובר');
+  done('2026-11-15');
+  assert.strictEqual(RW.streakOf(store, child, '2026-11-15'), 3);
+  store.data.settings.stars = { streakBonus: 0 };
+  assert.strictEqual(RW.starsForLesson(store, 100, 5).streakBonus, 0, 'ההורה יכול לכבות');
+});

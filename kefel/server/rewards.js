@@ -12,8 +12,8 @@ const { now } = require('./util');
 const DEFAULT_STARS = {
   base: 2,          // על עצם ההשלמה, גם כשהיה קשה
   max: 10,          // ב-100% הצלחה. זו גם יחידת החשבון: פרס של 300 = 30 שיעורים מושלמים
-  streakBonus: 0,   // בונוס רצף מקצר את הדרך לפרס ולכן מכובה כברירת מחדל
-  streakCap: 5,
+  streakBonus: 2,   // בונוס קבוע על שמירת רצף: תרגול יומי גם ביום התרגול הקודם (בקשת המשתמש)
+  streakCap: 5,     // לא בשימוש מאז 0.4.0 (הבונוס קבוע ולא גדל עם אורך הרצף); נשמר לתאימות
   missPenalty: 0,   // כמה כוכבים יורדים על יום תרגול שהוחמץ. 0 = בלי קנס (ברירת המחדל לכיתה ב)
 };
 
@@ -25,18 +25,24 @@ function starsForLesson(store, pct, streakDays) {
   const c = starsConf(store);
   const p = Math.max(0, Math.min(100, Number(pct) || 0));
   const earned = c.base + Math.round((c.max - c.base) * (p / 100));
-  const bonus = Math.min(c.streakCap, Math.max(0, (Number(streakDays) || 0) - 1)) * c.streakBonus;
+  // בונוס קבוע — לא גדל עם אורך הרצף, כדי שיום אחד שהוחמץ לא יעלה הרבה כוכבים
+  const bonus = (Number(streakDays) || 0) >= 2 ? Number(c.streakBonus) || 0 : 0;
   return { stars: earned + bonus, base: c.base, byAccuracy: earned - c.base, streakBonus: bonus };
 }
 
-// רצף ימי לימוד עד לתאריך נתון, כולל אותו יום
+// רצף ימי תרגול עד לתאריך נתון, כולל אותו יום. נספרים רק ימי התרגול של הילד:
+// סוף שבוע (או כל יום שאינו יום תרגול) לא שובר את הרצף ולא מוסיף לו.
 function streakOf(store, child, date) {
   const done = new Set(store.data.sessions
     .filter((l) => l.childId === child.id && l.kind === 'daily' && l.status === 'completed').map((l) => l.date));
+  const days = child.days && child.days.length ? child.days : [0, 1, 2, 3, 4, 5, 6];
   let n = 0;
   let d = date;
-  while (done.has(d)) {
-    n += 1;
+  for (let i = 0; i < 800; i++) {
+    const dow = new Date(d + 'T12:00:00Z').getUTCDay();
+    // יום שאינו יום תרגול מדולג — אלא אם בכל זאת תרגל בו תרגול יומי
+    if (done.has(d)) n += 1;
+    else if (days.includes(dow)) break;
     const t = new Date(d + 'T12:00:00Z');
     t.setUTCDate(t.getUTCDate() - 1);
     d = t.toISOString().slice(0, 10);

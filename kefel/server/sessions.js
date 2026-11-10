@@ -165,9 +165,12 @@ function complete(store, child, id) {
   const pct = total ? Math.round((correct / total) * 100) : 0;
   let stars = 0;
   let streak = 0;
+  let streakBonus = 0;
   if (s.kind === 'daily') {
     streak = RW.streakOf(store, child, U.addDays(s.date, -1)) + 1;
-    stars = RW.starsForLesson(store, pct, streak).stars;
+    const award = RW.starsForLesson(store, pct, streak);
+    stars = award.stars;
+    streakBonus = award.streakBonus;
     child.stars = (child.stars || 0) + stars;
     child.starsEarned = (child.starsEarned || 0) + stars;
   }
@@ -180,7 +183,7 @@ function complete(store, child, id) {
   s.status = 'completed';
   s.completedAt = U.now().toISOString();
   s.summary = {
-    total, correct, pct, stars, streak, table: s.table, phase: s.phase || '', learned: s.plan.some(x => x.t === 'learn'),
+    total, correct, pct, stars, streak, streakBonus, table: s.table, phase: s.phase || '', learned: s.plan.some(x => x.t === 'learn'),
     weak: [...weakMap.values()], tablePct: tState.pct, message: praise(pct)
   };
   // סוף ימי התרגול על הכפולה לבד — זו נקודת ההחלטה של ההורה: לפתוח כפולה חדשה,

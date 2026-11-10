@@ -94,7 +94,12 @@
       h('div.tchips', d.tables.map(x => h('button.tchip' + (x.n === d.table ? '.cur' : ''), { onclick: () => KF.go('#/learn/' + x.n) },
         h('span.n', '×' + x.n), h('span.small', x.pct + '%')))),
       h('p.muted.small', 'לחיצה על כפולה — ללמוד אותה שוב')) : null;
-    shell(h('div', h('div.hello', `היי ${d.child.name}! 👋`), card, goal, tables), 'home');
+    // הרצף: כמה ימי תרגול ברצף, ומה מקבלים אם ממשיכים היום
+    const streak = d.streak >= 1 && d.streakBonus ? h('div.streak',
+      h('span.fire', '🔥'),
+      h('span', d.streak === 1 ? 'יום אחד ברצף' : `${d.streak} ימים ברצף`),
+      d.mode === 'daily' ? h('span.small', ` · ${g('תרגל', 'תרגלי', 'תרגלו')} היום וקבל${g('', 'י', 'ו')} +${d.streakBonus} ⭐ בונוס`) : null) : null;
+    shell(h('div', h('div.hello', `היי ${d.child.name}! 👋`), streak, card, goal, tables), 'home');
   }
 
   // הסבר קצר בכניסה הראשונה. מוקרא, כי ילד בכיתה ב לא קורא מסך הסבר.
@@ -349,6 +354,7 @@
         h('div.big-emo', s.pct === 100 ? '🏆' : s.pct >= 60 ? '🎉' : '💪'),
         h('h2', `${g('סיימת', 'סיימת', 'סיימתם')} את התרגול!`),
         s.kind === 'daily' ? h('div.won', `+${s.stars} ⭐`) : h('p.muted', 'אימון נוסף — בלי כוכבים, אבל עם המון לימוד 🙂'),
+        s.kind === 'daily' && s.streakBonus ? h('div.streak', h('span.fire', '🔥'), `${s.streak} ימים ברצף — כולל +${s.streakBonus} ⭐ בונוס רצף`) : null,
         h('div.sum-tiles',
           h('div', h('b', `${s.correct}/${s.total}`), 'תשובות נכונות'),
           h('div', h('b', s.pct + '%'), 'הצלחה'),

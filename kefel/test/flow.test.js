@@ -98,6 +98,17 @@ test('אחרי התרגול היומי: מצב "סיום", אימון נוסף �
   assert.strictEqual(store.child(childId).stars, before);
 });
 
+test('בונוס רצף: תרגול יומי ביום שני ברצף מקבל +2', async () => {
+  U.setNow(() => new Date('2026-11-09T09:00:00+02:00'));   // שני, אחרי תרגול ביום ראשון
+  const home = (await kid('GET', 'child/home')).data;
+  assert.strictEqual(home.streak, 1);
+  const v = (await kid('POST', 'child/session/start', {})).data;
+  const sum = await playAll(v);
+  assert.strictEqual(sum.streak, 2);
+  assert.strictEqual(sum.streakBonus, 2);
+  assert.strictEqual(sum.stars, 12);
+});
+
 test('תשובה כפולה לאותה שאלה לא נספרת פעמיים', async () => {
   U.setNow(() => new Date('2026-11-09T10:00:00+02:00'));
   const v = (await kid('POST', 'child/session/start', {})).data;

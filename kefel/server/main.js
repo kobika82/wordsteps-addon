@@ -150,7 +150,10 @@ route('GET', '/api/me', 'any', async (ctx) => {
 // ---- ילד ----
 route('GET', '/api/child/home', 'child', async ({ child }) => ({
   child: { name: child.name, gender: child.gender, stars: child.stars || 0 },
-  intro: !child.introSeen, goal: RW.goalOf(store, child), ...S.homeState(store, child)
+  intro: !child.introSeen, goal: RW.goalOf(store, child), ...S.homeState(store, child),
+  // הרצף הנוכחי: כולל היום אם כבר תרגל, אחרת עד יום התרגול הקודם
+  streak: RW.streakOf(store, child, U.today()) || RW.streakOf(store, child, U.addDays(U.today(), -1)),
+  streakBonus: Number(RW.starsConf(store).streakBonus) || 0
 }));
 route('POST', '/api/child/intro/seen', 'child', async ({ child }) => { child.introSeen = true; store.save(); return { ok: true }; });
 route('POST', '/api/child/session/start', 'child', async ({ child, body }) => S.startSession(store, child, body));
@@ -329,7 +332,7 @@ route('PUT', '/api/stars', 'admin', async ({ body }) => {
   const s = store.data.settings;
   s.stars = { ...RW.starsConf(store),
     base: int(body.base, 0, 50, 2), max: int(body.max, 1, 200, 10),
-    streakBonus: int(body.streakBonus, 0, 20, 0), streakCap: 5, missPenalty: int(body.missPenalty, 0, 100, 0) };
+    streakBonus: int(body.streakBonus, 0, 20, 2), streakCap: 5, missPenalty: int(body.missPenalty, 0, 100, 0) };
   if (Array.isArray(body.rewards)) {
     s.rewards = body.rewards.filter(r => r && String(r.name || '').trim()).slice(0, 40).map(r => ({
       id: Number(r.id) || Date.now(), emoji: String(r.emoji || '🎁').slice(0, 4),

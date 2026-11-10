@@ -56,6 +56,12 @@ class Store {
       const base = emptyData();
       // השלמת שדות שנוספו בגרסאות מאוחרות יותר
       const data = { ...base, ...d, seq: { ...base.seq, ...d.seq }, settings: { ...base.settings, ...d.settings } };
+      // 0.4.0: בונוס רצף של 2 כוכבים (בקשת המשתמש). מי ששמר הגדרות כוכבים עם 0 —
+      // ברירת המחדל הקודמת — מקבל 2, פעם אחת. אחר כך ההורה יכול לשנות בחופשיות.
+      if (!data.settings.migratedStreak2) {
+        if (data.settings.stars && !Number(data.settings.stars.streakBonus)) data.settings.stars.streakBonus = 2;
+        data.settings.migratedStreak2 = true;
+      }
       // 0.3.0: התבניות ציור וגורם חסר הוסרו. תרגול פתוח שמכיל אותן נסגר, ומחר נבנה חדש.
       for (const s of data.sessions || []) {
         if (s.status === 'in_progress' && (s.plan || []).some(st => ['pic', 'miss'].includes(st.t))) s.status = 'abandoned';
