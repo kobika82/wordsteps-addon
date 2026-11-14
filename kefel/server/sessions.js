@@ -54,16 +54,20 @@ function homeState(store, child) {
   const n = child.current;
   const facts = store.childFacts(child.id);
   const tables = (child.tables || []).map(t => ({ n: t.n, learned: !!t.learnedAt, pct: M.tableState(facts, t.n).pct }));
-  if (!n) return { mode: 'none', tables, date };
+  // תרגול נוסף שההורה נתן מוצג בנפרד, ולא תלוי בשלב שבו הילד נמצא
+  const extra = child.extra
+    ? { tables: child.extra.tables, stars: Number(child.extra.stars) || 0, questions: Number(child.extra.questions) || 0 }
+    : null;
+  if (!n) return { mode: 'none', tables, extra, date };
   const ph = phaseOf(store, child, date);
   const base = { table: n, needLearn: !tableRec(child, n)?.learnedAt, phase: ph.phase, phaseDay: ph.day, soloDays: ph.solo,
     mixTables: learnedTables(child).length, state: M.tableState(facts, n), tables, date,
     studyDay: isStudyDay(child, date) };
   const open = inProgress(store, child, date);
-  if (open) return { ...base, mode: 'resume', sessionId: open.id, kind: open.kind };
-  if (dailyDone(store, child, date)) return { ...base, mode: 'done' };
-  if (!base.studyDay) return { ...base, mode: 'free' };
-  return { ...base, mode: 'daily' };
+  if (open) return { ...base, extra, mode: 'resume', sessionId: open.id, kind: open.kind };
+  if (dailyDone(store, child, date)) return { ...base, extra, mode: 'done' };
+  if (!base.studyDay) return { ...base, extra, mode: 'free' };
+  return { ...base, extra, mode: 'daily' };
 }
 
 function view(s) {
@@ -84,10 +88,38 @@ function buildPlan(store, child, n) {
   return ph.phase === 'learn' ? [{ t: 'learn', n }, ...quiz] : quiz;
 }
 
+// תרגול נוסף שההורה נתן: רק הכפולות שהוא בחר, ובלי תקרת mixMaxTables —
+// הוא כבר החליט על מה לתרגל, ואין טעם שהתוסף יצמצם לו את הבחירה.
+function buildExtraPlan(store, child, extra) {
+  const facts = store.childFacts(child.id);
+  const tables = (extra.tables || []).map(Number).filter(Boolean);
+  const count = Number(extra.questions) || Number(store.data.settings.questions) || 10;
+  return M.buildMix(facts, { tables, count, maxTables: tables.length || 1, lastSeen: {} });
+}
+
 function startSession(store, child, { mode } = {}) {
   const date = U.today();
   const open = inProgress(store, child, date);
   if (open) return view(open);
+
+  // התרגול שההורה נתן הוא חד-פעמי: ברגע שהתחיל הוא יורד מהילד, כדי שלא
+  // יהיה אפשר להתחיל אותו שוב ולקבל את הכוכבים פעמיים.
+  if (mode === 'extra') {
+    const extra = child.extra;
+    if (!extra) throw new HttpError(400, 'אין תרגול נוסף ממתין');
+    const s = {
+      id: store.nextId('session'), childId: child.id, date, kind: 'extra',
+      table: extra.tables[0] || child.current, tables: extra.tables.slice(),
+      extraStars: Number(extra.stars) || 0, phase: 'extra',
+      plan: buildExtraPlan(store, child, extra),
+      step: 0, results: {}, status: 'in_progress', createdAt: U.now().toISOString(), completedAt: null, summary: null
+    };
+    delete child.extra;
+    store.data.sessions.push(s);
+    store.save();
+    return view(s);
+  }
+
   const n = child.current;
   if (!n) throw new HttpError(400, 'עוד לא נפתחה כפולה');
   // תרגול יומי רק ביום תרגול ורק פעם אחת; כל השאר הוא אימון נוסף בלי כוכבים
@@ -171,6 +203,12 @@ function complete(store, child, id) {
     const award = RW.starsForLesson(store, pct, streak);
     stars = award.stars;
     streakBonus = award.streakBonus;
+    child.stars = (child.stars || 0) + stars;
+    child.starsEarned = (child.starsEarned || 0) + stars;
+  } else if (s.kind === 'extra') {
+    // הסכום שההורה קבע, במלואו. הוא בחר גם את הכפולות וגם את הפרס, ותרגול
+    // מסתיים רק אחרי שכל הטעויות תוקנו — אז אין כאן דרך לקבל כוכבים בחינם.
+    stars = Number(s.extraStars) || 0;
     child.stars = (child.stars || 0) + stars;
     child.starsEarned = (child.starsEarned || 0) + stars;
   }

@@ -105,7 +105,19 @@
       h('h2', `+${d.retroBonus.stars} כוכבים בונוס!`),
       h('p.lead', `בונוס רצף על הימים ש${g('תרגלת', 'תרגלת', 'תרגלתם')} ברצף עד היום. כל הכבוד!`),
       h('button.big-btn.green', { onclick: async (e) => { await KF.post('child/retro-bonus/seen').catch(() => {}); e.currentTarget.closest('.retro').remove(); } }, 'יש! 🎉')) : null;
-    shell(h('div', h('div.hello', `היי ${d.child.name}! 👋`), retro, streak, card, goal, tables), 'home');
+    // תרגול נוסף שההורה נתן. מוצג מעל התרגול היומי, כי הוא אירוע חד-פעמי —
+    // ועם הכוכבים כתובים, כדי שהילד ידע מראש מה מחכה לו.
+    const extra = d.extra ? h('div.kid-card.center.today',
+      h('div.tag', 'תרגול מיוחד'),
+      h('div.big-emo', '🎁'),
+      h('h2.table-title', `כפולות של ${d.extra.tables.join(' ו-')}`,
+        KF.speakBtn(() => `יש לך תרגול מיוחד על הכפולות של ${d.extra.tables.map(KF.num).join(' ו')}. בסיום מחכים ${KF.num(d.extra.stars)} כוכבים.`)),
+      h('p', `🎯 ${d.extra.questions} שאלות · ⭐ ${d.extra.stars} כוכבים בסיום`),
+      h('button.big-btn.purple', {
+        onclick: (e) => KF.busy(e.currentTarget, async () => play(await KF.post('child/session/start', { mode: 'extra' })))
+      }, 'יאללה! 🎁')) : null;
+
+    shell(h('div', h('div.hello', `היי ${d.child.name}! 👋`), retro, streak, extra, card, goal, tables), 'home');
   }
 
   // הסבר קצר בכניסה הראשונה. מוקרא, כי ילד בכיתה ב לא קורא מסך הסבר.

@@ -192,3 +192,63 @@ test('שלבים: יום לימוד, יומיים על הכפולה לבד, וא
   assert.ok(ns.has(2) && ns.has(5), 'החזרה כוללת את כל הכפולות שנלמדו');
   assert.strictEqual(r.v.plan.filter(s => !s.retry).length, 10, 'אורך התרגול לא גדל');
 });
+
+// ---- תרגול נוסף שההורה נותן ----
+// ההורה בוחר כפולות וכוכבים; הילד מקבל תרגול חד-פעמי שאינו תופס את מקום
+// התרגול היומי, והכוכבים ניתנים במלואם בסיום.
+test('תרגול נוסף: רק הכפולות שנבחרו, כוכבים כפי שנקבע, וחד-פעמי', async () => {
+  const before = (await admin('GET', 'children/' + childId)).data.child;
+  const learned = before.tables.filter(t => t.learnedAt).map(t => t.n);
+  assert.ok(learned.length >= 1, 'יש לפחות כפולה אחת שנלמדה: ' + learned);
+  const starsBefore = before.stars || 0;
+  const pick = [learned[0]];
+
+  // כפולה שלא נלמדה נדחית
+  const bad = await admin('POST', `children/${childId}/extra`, { tables: [9], stars: 5 });
+  assert.strictEqual(bad.status, 400);
+
+  const made = await admin('POST', `children/${childId}/extra`, { tables: pick, stars: 7, questions: 6, notify: false });
+  assert.strictEqual(made.status, 200);
+  assert.deepStrictEqual(made.data.extra.tables, pick);
+  assert.strictEqual(made.data.extra.stars, 7);
+
+  // הילד רואה אותו, ובנפרד ממצב התרגול היומי
+  const home = (await kid('GET', 'child/home')).data;
+  assert.deepStrictEqual(home.extra.tables, pick);
+  assert.strictEqual(home.extra.stars, 7);
+
+  const v = (await kid('POST', 'child/session/start', { mode: 'extra' })).data;
+  assert.strictEqual(v.kind, 'extra');
+  assert.strictEqual(v.plan.filter(s => !s.retry).length, 6, 'מספר השאלות כפי שנקבע');
+  assert.ok(v.plan.every(s => pick.includes(s.n)), 'רק הכפולות שנבחרו');
+
+  // התרגול ירד מהילד ברגע שהתחיל — אי אפשר להתחיל אותו פעמיים
+  assert.strictEqual((await kid('GET', 'child/home')).data.extra, null);
+
+  const sum = await playAll(v);
+  assert.strictEqual(sum.kind, 'extra');
+  assert.strictEqual(sum.stars, 7, 'הכוכבים שנקבעו, במלואם');
+  assert.strictEqual(sum.totalStars, starsBefore + 7);
+
+  // ועכשיו אין יותר תרגול נוסף ממתין
+  assert.strictEqual((await kid('POST', 'child/session/start', { mode: 'extra' })).status, 400);
+});
+
+test('תרגול נוסף עם טעויות עדיין מזכה במלוא הכוכבים', async () => {
+  const starsBefore = (await admin('GET', 'children/' + childId)).data.child.stars || 0;
+  const learned = (await admin('GET', 'children/' + childId)).data.child.tables.filter(t => t.learnedAt).map(t => t.n);
+  await admin('POST', `children/${childId}/extra`, { tables: learned.slice(0, 2), stars: 4, questions: 4, notify: false });
+  const v = (await kid('POST', 'child/session/start', { mode: 'extra' })).data;
+  const sum = await playAll(v, new Set([0, 1]));   // שתי טעויות
+  assert.ok(sum.pct < 100, 'באמת היו טעויות');
+  assert.strictEqual(sum.stars, 4, 'הסכום שנקבע ניתן במלואו');
+  assert.strictEqual(sum.totalStars, starsBefore + 4);
+});
+
+test('ביטול תרגול נוסף מסיר אותו מהילד', async () => {
+  const learned = (await admin('GET', 'children/' + childId)).data.child.tables.filter(t => t.learnedAt).map(t => t.n);
+  await admin('POST', `children/${childId}/extra`, { tables: [learned[0]], stars: 3, notify: false });
+  assert.ok((await kid('GET', 'child/home')).data.extra);
+  assert.strictEqual((await admin('DELETE', `children/${childId}/extra`)).status, 200);
+  assert.strictEqual((await kid('GET', 'child/home')).data.extra, null);
+});

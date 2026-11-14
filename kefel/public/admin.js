@@ -95,6 +95,51 @@
       list.length ? h('div.grid2', list.map(c => kidCard(c, children))) : h('p.muted', 'עוד אין ילדים.'));
   }
 
+  // ---------- תרגול נוסף ----------
+  // ההורה בוחר כפולות מתוך אלה שכבר נלמדו, קובע כמה כוכבים זה יזכה, והתרגול
+  // ממתין לילד במסך הבית. חד-פעמי, ובנפרד מהתרגול היומי.
+  function extraCard(c, reload) {
+    const learned = (c.tables || []).filter(t => t.learnedAt).map(t => t.n).sort((a, b) => a - b);
+    const box = h('div.card', h('h2', '🎁 תרגול נוסף'));
+
+    if (!learned.length) {
+      box.append(h('p.muted', 'אפשר לתת תרגול נוסף אחרי שנלמדה כפולה אחת לפחות.'));
+      return box;
+    }
+
+    if (c.extra) {
+      box.append(
+        h('p', h('b', 'ממתין לילד: '), `כפולות ${c.extra.tables.join(', ')} · ${c.extra.questions} שאלות · ⭐ ${c.extra.stars} כוכבים`),
+        h('p.small.muted', 'התרגול יופיע במסך הבית של הילד. הוא חד-פעמי — אחרי שיתחיל אותו הוא יורד מכאן.'),
+        h('div.row', h('button.btn.danger', { onclick: (e) => KF.busy(e.currentTarget, async () => {
+          await KF.del(`children/${c.id}/extra`); KF.toast('בוטל'); reload();
+        }) }, 'ביטול התרגול')));
+      return box;
+    }
+
+    const checks = learned.map(n => h('label',
+      h('input', { type: 'checkbox', value: String(n) }), ' ×' + n));
+    const stars = h('input', { type: 'number', min: 0, max: 100, value: 5, style: { width: '80px' } });
+    const count = h('input', { type: 'number', min: 4, max: 40, value: 10, style: { width: '80px' } });
+
+    box.append(
+      h('p.small.muted', 'בחרו על אילו כפולות לתרגל — רק מאלה שכבר נלמדו — וכמה כוכבים התרגול יזכה בסיומו.'),
+      h('div.checks', { style: { marginBottom: '10px' } }, ...checks),
+      h('div.row', { style: { gap: '14px', marginBottom: '10px' } },
+        h('label.f', h('span', 'שאלות'), count),
+        h('label.f', h('span', 'כוכבים'), stars)),
+      h('p.small.muted', 'הכוכבים ניתנים במלואם בסיום, בלי תלות באחוז ההצלחה — התרגול נגמר רק אחרי שכל הטעויות תוקנו.'),
+      h('div.row',
+        h('button.btn.primary', { onclick: (e) => KF.busy(e.currentTarget, async () => {
+          const tables = checks.map(l => l.querySelector('input')).filter(i => i.checked).map(i => +i.value);
+          if (!tables.length) return KF.toast('צריך לבחור לפחות כפולה אחת', true);
+          const r = await KF.post(`children/${c.id}/extra`, { tables, stars: +stars.value, questions: +count.value });
+          KF.toast(r.notified && r.notified.ok ? 'נשלח לילד ✓' : 'נוצר (ההתראה לא נשלחה)', !(r.notified && r.notified.ok));
+          reload();
+        }) }, 'שליחת תרגול נוסף')));
+    return box;
+  }
+
   async function childPage(id) {
     const d = await KF.get('children/' + id);
     const c = d.child;
@@ -127,6 +172,7 @@
       h('div.card', h('h2', 'הכפולות'),
         h('p.small.muted', 'לחיצה על כפולה נעולה פותחת אותה והופכת אותה לכפולה היומית. לחיצה על כפולה פתוחה — אפשרויות נוספות.'),
         tables),
+      extraCard(c, reload),
       d.hard.length ? h('div.card', h('h2', '⚠️ עובדות קשות'),
         h('div.chips', d.hard.map(x => h('span.chip', { dir: 'ltr' }, `${x.a}×${x.b}=${x.a * x.b}`, h('span.small.muted', ` · ${x.wrong} טעויות`))))) : null,
       h('div.card', h('h2', 'לוח הכפל של ' + c.name),

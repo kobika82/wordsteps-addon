@@ -273,6 +273,35 @@ route('POST', '/api/children/:id/unlock', 'admin', async ({ params, body }) => {
   }
   return { child: childRow(c), notified };
 });
+// ---------- תרגול נוסף שההורה נותן ----------
+// ההורה בוחר על אילו כפולות לתרגל ובכמה כוכבים זה יזכה. התרגול ממתין לילד
+// במסך הבית, חד-פעמי, ואינו תופס את מקומו של התרגול היומי.
+route('POST', '/api/children/:id/extra', 'admin', async ({ params, body }) => {
+  const c = childOr404(params.id);
+  const learned = S.learnedTables(c);
+  const tables = [...new Set((Array.isArray(body.tables) ? body.tables : []).map(Number))]
+    .filter(n => learned.includes(n)).sort((a, b) => a - b);
+  if (!tables.length) throw new HttpError(400, 'צריך לבחור לפחות כפולה אחת מתוך אלה שנלמדו');
+  const stars = int(body.stars, 0, 100, 5);
+  const questions = int(body.questions, 4, 40, Number(store.data.settings.questions) || 10);
+  c.extra = { tables, stars, questions, createdAt: U.now().toISOString() };
+  store.save();
+  let notified = null;
+  if (c.notifyService && c.active && body.notify !== false) {
+    const g = c.gender;
+    const verb = g === 'f' ? 'מחכה לך' : g === 'm' ? 'מחכה לך' : 'מחכה לכם';
+    notified = await scheduler.send(store, { childId: c.id, kind: 'extra', service: c.notifyService, title: scheduler.TITLE,
+      message: `${c.name}, ${verb} תרגול נוסף על כפולות ${tables.join(', ')} — ${stars} כוכבים ⭐` });
+  }
+  return { child: childRow(c), extra: c.extra, notified };
+});
+route('DELETE', '/api/children/:id/extra', 'admin', async ({ params }) => {
+  const c = childOr404(params.id);
+  delete c.extra;
+  store.save();
+  return childRow(c);
+});
+
 // לחזור לכפולה שכבר נפתחה (בלי לפתוח חדשה)
 route('POST', '/api/children/:id/current', 'admin', async ({ params, body }) => {
   const c = childOr404(params.id);
