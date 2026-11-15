@@ -134,3 +134,79 @@ test('בונוס רצף רטרואקטיבי: רק על ימים ברצף, פע�
   assert.strictEqual(S.retroStreakBonus(store).length, 0, 'הפעלה שנייה לא נותנת שוב');
   assert.strictEqual(child.stars, 34);
 });
+
+// ---- שעון ----
+const C = require('../server/clock');
+
+test('רמות השעון: כל רמה מוסיפה דקות ולא מחליפה', () => {
+  assert.deepStrictEqual(C.levelOf(1).minutes, [0, 30]);
+  assert.deepStrictEqual(C.levelOf(2).minutes, [0, 15, 30, 45]);
+  assert.strictEqual(C.levelOf(3).minutes.length, 12);
+  // רמה לא מוכרת נופלת לקלה ביותר ולא מתפוצצת
+  assert.strictEqual(C.levelOf(99).id, 1);
+  for (let i = 0; i < 200; i++) {
+    const t = C.randomTime(1);
+    assert.ok([0, 30].includes(t.minute), 'ברמה 1 רק שעות עגולות וחצי');
+    assert.ok(t.hour >= 6 && t.hour <= 21, 'שעות של ילד: ' + t.hour);
+  }
+});
+
+test('מסיחים: מהטעויות שילדים עושים, ואף אחד מהם אינו התשובה', () => {
+  const d = C.distractors(3, 15, 3);
+  assert.ok(d.length >= 3, 'מספיק מסיחים');
+  assert.ok(!d.some(x => x.hour === 3 && x.minute === 15), 'התשובה אינה מסיח');
+  // שעה סמוכה היא טעות אופיינית וצריכה להיות שם
+  assert.ok(d.some(x => x.hour === 4 && x.minute === 15));
+  assert.ok(d.some(x => x.hour === 2 && x.minute === 15));
+});
+
+test('שאלת קריאה: ארבע אפשרויות, אחת נכונה, בלי כפילויות', () => {
+  for (let i = 0; i < 100; i++) {
+    const q = C.question(3, 'read');
+    assert.strictEqual(q.t, 'clock-read');
+    assert.strictEqual(q.options.length, 4);
+    assert.strictEqual(new Set(q.options).size, 4, 'בלי כפילויות: ' + q.options);
+    assert.ok(q.options.includes(q.answer), 'התשובה בין האפשרויות');
+    assert.strictEqual(q.answer, C.hhmm(q.hour, q.minute));
+  }
+});
+
+test('שאלת כיוון מחוגים: התשובה היא השעה עצמה, והבדיקה מדויקת', () => {
+  const q = C.question(2, 'set');
+  assert.strictEqual(q.t, 'clock-set');
+  assert.ok([0, 15, 30, 45].includes(q.minute));
+  assert.strictEqual(C.check(q, q.answer), true);
+  assert.strictEqual(C.check(q, '00:00'), q.answer === '00:00');
+  assert.strictEqual(C.check(q, ''), false);
+});
+
+test('תרגול שעון מתחלף בין קריאה לכיוון', () => {
+  const plan = C.buildQuiz(3, 10);
+  assert.strictEqual(plan.length, 10);
+  assert.strictEqual(plan.filter(s => s.t === 'clock-read').length, 5);
+  assert.strictEqual(plan.filter(s => s.t === 'clock-set').length, 5);
+});
+
+test('מסיח לעולם אינו התאום של התשובה במחצית השנייה של היום', () => {
+  // שעון אנלוגי לא מבדיל בין 7:15 ל-19:15. אם מסיח כזה היה נכנס, לשאלה
+  // פשוט לא הייתה תשובה — המחוגים מראים את שניהם בדיוק אותו דבר.
+  for (let i = 0; i < 300; i++) {
+    const q = C.question(3, 'read');
+    for (const o of q.options) {
+      if (o === q.answer) continue;
+      const [h, m] = o.split(':').map(Number);
+      assert.ok(!(m === q.minute && (h + 12) % 24 === q.hour % 24),
+        `מסיח ${o} זהה ל-${q.answer} על הלוח`);
+    }
+  }
+});
+
+test('מסיח המחוגים המוחלפים נשאר באותה מחצית יום', () => {
+  for (const hour of [7, 11, 13, 19]) {
+    const half = hour < 12 ? 0 : 12;
+    const swapped = C.distractors(hour, 15, 3).find(d => d.minute === (hour % 12) * 5);
+    if (!swapped) continue;
+    assert.ok(swapped.hour >= half && swapped.hour < half + 12,
+      `${C.hhmm(swapped.hour, swapped.minute)} אינו במחצית של ${hour}`);
+  }
+});

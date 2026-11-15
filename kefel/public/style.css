@@ -324,3 +324,38 @@ table.grid10 td { width: 38px; height: 32px; text-align: center; font-size: 13px
 .streak { display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: 4px; background: #fff7ed; color: #9a3412; border-radius: 999px; padding: 6px 14px; font-weight: 800; margin: 4px auto 12px; width: fit-content; max-width: 100%; }
 .streak .fire { font-size: 20px; }
 .streak .small { font-weight: 600; }
+
+/* ---------- שעון ---------- */
+/* הלוח נשאר קריא גם בשעון קטן: ספרות עבות, קווי חמישיות בולטים מקווי הדקות */
+.clockface { display: block; max-width: 100%; height: auto; touch-action: none; }
+.clockface.drag { cursor: grab; }
+.clockface.drag:active { cursor: grabbing; }
+.cf-rim { fill: #fff; stroke: var(--ink); stroke-width: 2; }
+.cf-tick { stroke: var(--muted); stroke-width: 0.7; }
+.cf-tick5 { stroke: var(--ink); stroke-width: 1.8; }
+.cf-num { font-size: 10px; font-weight: 800; fill: var(--ink); text-anchor: middle; font-family: 'Rubik', system-ui, sans-serif; }
+.cf-min { font-size: 4.2px; font-weight: 600; fill: var(--muted); text-anchor: middle; font-family: 'Rubik', system-ui, sans-serif; }
+.cf-hand { stroke-linecap: round; }
+.cf-hour { stroke: var(--kid-b); stroke-width: 4.6; }
+.cf-min-hand { stroke: var(--kid-a); stroke-width: 3; }
+.cf-pin { fill: var(--ink); }
+
+.clock-digital { font-family: 'Nunito', 'Rubik', monospace; font-size: 46px; font-weight: 800;
+  letter-spacing: 2px; direction: ltr; unicode-bidi: isolate; color: var(--ink); line-height: 1.1; }
+.clock-digital .ampm { font-size: 18px; font-weight: 600; color: var(--muted); letter-spacing: 0; }
+.clock-wrap { display: flex; flex-direction: column; align-items: center; gap: 14px; }
+.clock-legend { display: flex; gap: 16px; justify-content: center; font-size: 14px; color: var(--muted); }
+.clock-legend i { display: inline-block; width: 22px; height: 5px; border-radius: 3px; vertical-align: middle; margin-left: 6px; }
+.clock-legend i.h { background: var(--kid-b); }
+.clock-legend i.m { background: var(--kid-a); }
+.clock-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.clock-grid button { background: #fff; border: 3px solid var(--line); border-radius: 18px; padding: 8px; }
+.clock-grid button.right { border-color: var(--kid-c); background: #dcfce7; }
+.clock-grid button.wrong { border-color: var(--kid-a); background: #ffedd5; }
+.time-input { font-family: 'Nunito', monospace; font-size: 34px; font-weight: 800; text-align: center;
+  width: 150px; direction: ltr; border: 3px solid var(--line); border-radius: 14px; padding: 6px; }
+
+/* משוב לשאלת שעון: לוח קטן והשעה בספרות, זה לצד זה */
+.clock-fb { display: flex; align-items: center; justify-content: center; gap: 14px; flex-wrap: wrap; margin: 8px 0; }
+.clock-fb .clockface { width: 130px; height: 130px; }
+.clock-digital.sm { font-size: 32px; }

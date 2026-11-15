@@ -7,6 +7,7 @@ const { Store } = require('./store');
 const U = require('./util');
 const M = require('./math');
 const S = require('./sessions');
+const CL = require('./clock');
 const RW = require('./rewards');
 const ha = require('./ha');
 const scheduler = require('./scheduler');
@@ -278,22 +279,39 @@ route('POST', '/api/children/:id/unlock', 'admin', async ({ params, body }) => {
 // במסך הבית, חד-פעמי, ואינו תופס את מקומו של התרגול היומי.
 route('POST', '/api/children/:id/extra', 'admin', async ({ params, body }) => {
   const c = childOr404(params.id);
-  const learned = S.learnedTables(c);
-  const tables = [...new Set((Array.isArray(body.tables) ? body.tables : []).map(Number))]
-    .filter(n => learned.includes(n)).sort((a, b) => a - b);
-  if (!tables.length) throw new HttpError(400, 'צריך לבחור לפחות כפולה אחת מתוך אלה שנלמדו');
   const stars = int(body.stars, 0, 100, 5);
   const questions = int(body.questions, 4, 40, Number(store.data.settings.questions) || 10);
-  c.extra = { tables, stars, questions, createdAt: U.now().toISOString() };
+  let what;
+  if (body.type === 'clock') {
+    const open = Number(c.clockLevel) || 0;
+    if (!open) throw new HttpError(400, 'עוד לא נפתחה רמת שעון לילד');
+    const level = int(body.level, 1, Math.min(open, CL.LEVELS.length), open);
+    c.extra = { type: 'clock', level, stars, questions, createdAt: U.now().toISOString() };
+    what = `תרגול שעון — ${CL.levelOf(level).name}`;
+  } else {
+    const learned = S.learnedTables(c);
+    const tables = [...new Set((Array.isArray(body.tables) ? body.tables : []).map(Number))]
+      .filter(n => learned.includes(n)).sort((a, b) => a - b);
+    if (!tables.length) throw new HttpError(400, 'צריך לבחור לפחות כפולה אחת מתוך אלה שנלמדו');
+    c.extra = { type: 'tables', tables, stars, questions, createdAt: U.now().toISOString() };
+    what = `תרגול נוסף על כפולות ${tables.join(', ')}`;
+  }
   store.save();
   let notified = null;
   if (c.notifyService && c.active && body.notify !== false) {
-    const g = c.gender;
-    const verb = g === 'f' ? 'מחכה לך' : g === 'm' ? 'מחכה לך' : 'מחכה לכם';
+    const verb = c.gender === 'p' ? 'מחכה לכם' : 'מחכה לך';
     notified = await scheduler.send(store, { childId: c.id, kind: 'extra', service: c.notifyService, title: scheduler.TITLE,
-      message: `${c.name}, ${verb} תרגול נוסף על כפולות ${tables.join(', ')} — ${stars} כוכבים ⭐` });
+      message: `${c.name}, ${verb} ${what} — ${stars} כוכבים ⭐` });
   }
   return { child: childRow(c), extra: c.extra, notified };
+});
+
+// רמת השעון שנפתחה לילד. ההורה מעלה אותה כשהילד מוכן, כמו פתיחת כפולה.
+route('POST', '/api/children/:id/clock-level', 'admin', async ({ params, body }) => {
+  const c = childOr404(params.id);
+  c.clockLevel = int(body.level, 0, CL.LEVELS.length, 0);
+  store.save();
+  return childRow(c);
 });
 route('DELETE', '/api/children/:id/extra', 'admin', async ({ params }) => {
   const c = childOr404(params.id);

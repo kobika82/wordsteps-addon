@@ -21,6 +21,7 @@
     const nav = h('nav.kid-nav',
       h('a' + (tab === 'home' ? '.on' : ''), { href: '#/' }, '🏠 בית'),
       h('a' + (tab === 'progress' ? '.on' : ''), { href: '#/progress' }, '📈 התקדמות'),
+      h('a' + (tab === 'clock' ? '.on' : ''), { href: '#/clock' }, '🕐 שעון'),
       h('a' + (tab === 'rewards' ? '.on' : ''), { href: '#/rewards' }, '🎁 פרסים'));
     KF.mount(h('div.kid-wrap', top, content), nav);
   }
@@ -29,6 +30,7 @@
     KF.route('/', home);
     KF.route('/progress', progress);
     KF.route('/rewards', rewards);
+    KF.route('/clock', clockPage);
     KF.route('/learn/:n', n => learnFlow(Number(n), { onDone: () => KF.go('#/'), doneLabel: 'סיום 🏠', replay: true }));
   };
 
@@ -109,9 +111,11 @@
     // ועם הכוכבים כתובים, כדי שהילד ידע מראש מה מחכה לו.
     const extra = d.extra ? h('div.kid-card.center.today',
       h('div.tag', 'תרגול מיוחד'),
-      h('div.big-emo', '🎁'),
-      h('h2.table-title', `כפולות של ${d.extra.tables.join(' ו-')}`,
-        KF.speakBtn(() => `יש לך תרגול מיוחד על הכפולות של ${d.extra.tables.map(KF.num).join(' ו')}. בסיום מחכים ${KF.num(d.extra.stars)} כוכבים.`)),
+      h('div.big-emo', d.extra.type === 'clock' ? '🕐' : '🎁'),
+      h('h2.table-title', d.extra.type === 'clock' ? 'שעון' : `כפולות של ${d.extra.tables.join(' ו-')}`,
+        KF.speakBtn(() => (d.extra.type === 'clock'
+          ? `יש לך תרגול מיוחד על השעון. בסיום מחכים ${KF.num(d.extra.stars)} כוכבים.`
+          : `יש לך תרגול מיוחד על הכפולות של ${d.extra.tables.map(KF.num).join(' ו')}. בסיום מחכים ${KF.num(d.extra.stars)} כוכבים.`))),
       h('p', `🎯 ${d.extra.questions} שאלות · ⭐ ${d.extra.stars} כוכבים בסיום`),
       h('button.big-btn.purple', {
         onclick: (e) => KF.busy(e.currentTarget, async () => play(await KF.post('child/session/start', { mode: 'extra' })))
@@ -233,6 +237,7 @@
         }
       });
     }
+    if (s.t === 'clock-read' || s.t === 'clock-set') return clockQuestion(P, s);
     return question(P, s);
   }
 
@@ -319,6 +324,7 @@
 
   // פס המשוב בתחתית: חיובי עם שבח, שלילי עם התשובה והציור — כדי ללמוד מהטעות
   function feedback(P, s, good) {
+    if (s.t === 'clock-read' || s.t === 'clock-set') return clockFeedback(P, s, good);
     const [a, b, p] = fact(s);
     let msg, detail, say;
     if (good) {
@@ -333,6 +339,33 @@
         a * b <= 40 ? KF.groups(a, b, theme(b).item, { hideCount: true }) : null,
         s.retry ? null : h('div.small', 'נתרגל את זה שוב בסוף 💪'));
       say = `כמעט. ${KF.sayFact(a, b, p)}.`;
+    }
+    const next = h('button.big-btn' + (good ? '.green' : '.blue'), { onclick: () => { bar.remove(); render(P); } }, 'המשך ←');
+    const bar = h('div.feedback' + (good ? '.good' : '.soft'), h('div.in', h('div.msg', msg), h('div.detail', detail), next));
+    document.body.appendChild(bar);
+    if (good) burst();
+    KF.speak(say);
+    next.focus();
+  }
+
+  // משוב לשאלת שעון: במקום תרגיל כפל מראים את השעה הנכונה — גם בספרות
+  // וגם על לוח קטן, כי הקישור בין השניים הוא כל מה שהילד מתאמן עליו כאן.
+  function clockFeedback(P, s, good) {
+    const time = KF.clock.digital(s.hour, s.minute, H24);
+    const little = KF.clock.face({ size: 130, hour: s.hour, minute: s.minute, minuteNumbers: false });
+    let msg, detail, say;
+    if (good) {
+      const word = pick(GOOD());
+      msg = word + ' ' + pick(GOOD_EMO);
+      detail = h('div.clock-fb', little.el, h('div.clock-digital.sm', time));
+      say = word;
+    } else {
+      msg = 'כמעט! 💡';
+      detail = h('div',
+        h('div', 'השעה הנכונה:'),
+        h('div.clock-fb', little.el, h('div.clock-digital.sm', time)),
+        s.retry ? null : h('div.small', 'נתרגל את זה שוב בסוף 💪'));
+      say = `כמעט. השעה היא ${KF.clock.spoken(s.hour, s.minute)}.`;
     }
     const next = h('button.big-btn' + (good ? '.green' : '.blue'), { onclick: () => { bar.remove(); render(P); } }, 'המשך ←');
     const bar = h('div.feedback' + (good ? '.good' : '.soft'), h('div.in', h('div.msg', msg), h('div.detail', detail), next));
@@ -371,21 +404,23 @@
       h('div.kid-card.center',
         h('div.big-emo', s.pct === 100 ? '🏆' : s.pct >= 60 ? '🎉' : '💪'),
         h('h2', `${g('סיימת', 'סיימת', 'סיימתם')} את התרגול!`),
-        s.kind === 'daily' ? h('div.won', `+${s.stars} ⭐`) : h('p.muted', 'אימון נוסף — בלי כוכבים, אבל עם המון לימוד 🙂'),
+        s.stars > 0 ? h('div.won', `+${s.stars} ⭐`) : h('p.muted', 'אימון נוסף — בלי כוכבים, אבל עם המון לימוד 🙂'),
         s.kind === 'daily' && s.streakBonus ? h('div.streak', h('span.fire', '🔥'), `${s.streak} ימים ברצף — כולל +${s.streakBonus} ⭐ בונוס רצף`) : null,
         h('div.sum-tiles',
           h('div', h('b', `${s.correct}/${s.total}`), 'תשובות נכונות'),
           h('div', h('b', s.pct + '%'), 'הצלחה'),
           h('div', h('b', '⭐ ' + s.totalStars), 'כוכבים עכשיו'),
-          s.tablePct ? h('div', h('b', s.tablePct + '%'), `${g('שולט', 'שולטת', 'שולטים')} בכפולות של ${s.table}`) : h('div', h('b', '🌱'), `התחלנו את כפולות של ${s.table}`)),
+          s.subject === 'clock' ? h('div', h('b', '🕐'), KF.clock.levelName(s.level))
+            : s.tablePct ? h('div', h('b', s.tablePct + '%'), `${g('שולט', 'שולטת', 'שולטים')} בכפולות של ${s.table}`)
+            : h('div', h('b', '🌱'), `התחלנו את כפולות של ${s.table}`)),
         h('p.lead', s.message)),
-      s.weak.length ? h('div.kid-card',
+      (s.weak && s.weak.length) ? h('div.kid-card',
         h('h3', '💪 כדאי לחזק'),
         h('p.muted', 'הן יופיעו שוב בתרגולים הבאים — ככה לומדים!'),
         h('div.weak', s.weak.map(w => h('div.w', eq(w.a, w.b, w.product, '.sm'), KF.speakBtn(KF.sayFact(w.a, w.b, w.product)))))) : null,
       h('button.big-btn.blue', { onclick: () => KF.go('#/') }, 'לדף הבית 🏠')
     ), 'home');
-    KF.speak(`${g('סיימת', 'סיימת', 'סיימתם')}! ${s.correct} תשובות נכונות מתוך ${s.total}. ${s.kind === 'daily' ? `${g('קיבלת', 'קיבלת', 'קיבלתם')} ${s.stars} כוכבים.` : ''}`);
+    KF.speak(`${g('סיימת', 'סיימת', 'סיימתם')}! ${s.correct} תשובות נכונות מתוך ${s.total}. ${s.stars > 0 ? `${g('קיבלת', 'קיבלת', 'קיבלתם')} ${KF.num(s.stars)} כוכבים.` : ''}`);
   }
 
   // ---------- ההתקדמות שלי ----------
@@ -470,4 +505,128 @@
           h('div.w', h('span', r.emoji), h('span.grow', r.name), h('span.muted', KF.fmtTime(r.at).slice(0, 10)))))) : null
     ), 'rewards');
   }
+
+  // ---------- שעון ----------
+  // שני מסכים: מגרש משחקים חופשי, ושאלות. שניהם משתמשים באותו רכיב שעון,
+  // כדי שמה שהילד למד לגרור יהיה בדיוק מה שהוא רואה בשאלה.
+
+  // תצוגה דיגיטלית גדולה. מצב 12/24 נשמר בין מסכים, כי זו העדפה של הילד
+  // ולא הגדרה של שאלה בודדת.
+  let H24 = true;
+  const digi = (hour, minute) => {
+    const txt = KF.clock.digital(hour, minute, H24);
+    const [t, ap] = H24 ? [txt, null] : [txt.split(' ')[0], txt.split(' ')[1]];
+    return h('div.clock-digital', t, ap ? h('span.ampm', ' ' + ap) : null);
+  };
+  const h24Toggle = (onChange) => h('button.btn', {
+    onclick: (e) => { H24 = !H24; e.currentTarget.textContent = H24 ? '🕐 24 שעות' : '🕐 12 שעות'; onChange(); }
+  }, H24 ? '🕐 24 שעות' : '🕐 12 שעות');
+
+  async function clockPage() {
+    const d = await KF.get('child/home').catch(() => ({}));
+    const level = d.clockLevel || 0;
+
+    const face = KF.clock.face({ size: 300, hour: 10, minute: 10, draggable: true, onChange: () => sync() });
+    const out = h('div');
+    const amPm = h('button.btn', { onclick: () => { face.set((face.hour + 12) % 24, face.minute); sync(); } }, '🌙/☀️');
+    const input = h('input.time-input', { type: 'text', inputmode: 'numeric', placeholder: '10:10', value: '10:10' });
+
+    function sync() {
+      out.innerHTML = '';
+      out.append(digi(face.hour, face.minute));
+      input.value = KF.clock.pad(face.hour) + ':' + KF.clock.pad(face.minute);
+      amPm.textContent = face.hour < 12 ? '☀️ בוקר' : '🌙 אחר הצהריים';
+    }
+    // הקלדת שעה דיגיטלית מזיזה את המחוגים
+    input.addEventListener('input', () => {
+      const m = /^(\d{1,2})[:.]?(\d{0,2})$/.exec(input.value.trim());
+      if (!m) return;
+      const hh = Math.min(23, +m[1]);
+      const mm = Math.min(59, +(m[2] || 0));
+      face.set(hh, mm);
+      out.innerHTML = '';
+      out.append(digi(hh, mm));
+      amPm.textContent = hh < 12 ? '☀️ בוקר' : '🌙 אחר הצהריים';
+    });
+    // כשיוצאים מהשדה מסדרים אותו ל-HH:MM, כדי שמה שנשאר על המסך ייראה כמו שעה
+    input.addEventListener('blur', () => { input.value = KF.clock.pad(face.hour) + ':' + KF.clock.pad(face.minute); });
+    sync();
+
+    shell(h('div',
+      h('div.hello', 'השעון שלי 🕐'),
+      h('div.kid-card.center',
+        h('div.clock-wrap', face.el, out),
+        h('div.clock-legend',
+          h('span', h('i.h'), 'מחוג השעות'),
+          h('span', h('i.m'), 'מחוג הדקות')),
+        h('p.muted.small', 'אפשר לגרור את המחוגים — והשעה למטה משתנה'),
+        h('div.row.center', { style: { justifyContent: 'center', marginTop: '10px' } },
+          h24Toggle(sync), amPm, KF.speakBtn(() => KF.clock.spoken(face.hour, face.minute)))),
+      h('div.kid-card.center',
+        h('h3', 'או שכותבים שעה — והמחוגים יזוזו'),
+        input),
+      level ? h('div.kid-card.center',
+        h('div.big-emo', '❓'),
+        h('h3', 'רוצה לתרגל?'),
+        h('p.muted.small', 'תרגול חופשי, בלי כוכבים'),
+        h('button.big-btn.blue', {
+          onclick: (e) => KF.busy(e.currentTarget, async () => play(await KF.post('child/session/start', { mode: 'clock' })))
+        }, 'שאלות על השעון ⏰'))
+        : h('div.kid-card.center', h('p.muted', 'אפשר לשחק עם השעון. שאלות ייפתחו כשההורים יפתחו לך רמה.')),
+      ), 'clock');
+  }
+
+  // שאלת שעון. שני סוגים: לקרוא מהשעון, או לכוון אותו לפי שעה דיגיטלית.
+  function clockQuestion(P, s) {
+    const read = s.t === 'clock-read';
+    const title = read ? 'מה השעה?' : 'כוונו את השעון';
+    const card = h('div.kid-card.center.q',
+      s.retry ? h('div.tag.retry', 'עוד ניסיון 💪') : null,
+      h('div.q-title', title, KF.speakBtn(() => (read ? 'מה השעה בשעון?' : 'כוונו את השעון לשעה ' + KF.clock.spoken(s.hour, s.minute)))));
+
+    const submit = async (value, mark) => {
+      card.querySelectorAll('button').forEach(b => (b.disabled = true));
+      let r;
+      try { r = await KF.post('child/session/' + P.id + '/answer', { step: P.step, answer: value }); }
+      catch (e) { KF.fail(e); card.querySelectorAll('button').forEach(b => (b.disabled = false)); return; }
+      P.plan = r.plan;
+      P.results[P.step] = { correct: r.correct };
+      if (mark) mark(r.correct);
+      P.step++;
+      feedback(P, s, r.correct);
+    };
+
+    if (read) {
+      const face = KF.clock.face({ size: 250, hour: s.hour, minute: s.minute });
+      card.append(h('div.clock-wrap', face.el));
+      const btns = s.options.map(o => h('button.opt', { onclick: () => submit(o, (ok) => {
+        btns.forEach((b, i) => {
+          if (s.options[i] === s.answer) b.classList.add('right');
+          else if (s.options[i] === o && !ok) b.classList.add('wrong');
+        });
+      }) }, h('span.en', H24 ? o : KF.clock.digital(+o.slice(0, 2), +o.slice(3), false))));
+      card.append(h('div.opts', btns));
+      card.append(h('div.row.center', { style: { justifyContent: 'center' } }, h24Toggle(() => clockQuestion(P, s))));
+    } else {
+      // כאן השעה נתונה, והילד מזיז את המחוגים. מתחילים משעה אחרת בכוונה —
+      // אבל באותה מחצית יום כמו התשובה, כדי שהילד יפתור בגרירה ולא ייתקע
+      // על כפתור הבוקר/ערב שאין לו שום ביטוי על הלוח.
+      const half = s.hour < 12 ? 0 : 12;
+      // הכפתור כתוב במילים ולא באייקון בלבד — ילד לא אמור לנחש מה הסמל עושה
+      const halfBtn = h('button.btn', { onclick: () => { face.set((face.hour + 12) % 24, face.minute); halfBtn.textContent = face.hour < 12 ? '☀️ בוקר' : '🌙 אחר הצהריים'; } });
+      // 12 בדיוק היה מניח את מחוג השעות מתחת למחוג הדקות שעומד על 0,
+      // ושום נגיעה לא הייתה מבדילה ביניהם. לכן נופלים ל-7 במקרה הזה.
+      const start = ((s.hour + 5) % 12) || 7;
+      const face = KF.clock.face({ size: 250, hour: half + start, minute: 0, draggable: true, step: s.step || 5 });
+      halfBtn.textContent = face.hour < 12 ? '☀️ בוקר' : '🌙 אחר הצהריים';
+      card.append(digi(s.hour, s.minute), h('div.clock-wrap', face.el),
+        h('p.muted.small', 'גררו את המחוגים לשעה שלמעלה'),
+        h('div.row.center', { style: { justifyContent: 'center' } },
+          halfBtn,
+          h('button.big-btn.green', { onclick: () => submit(KF.clock.pad(face.hour) + ':' + KF.clock.pad(face.minute)) }, 'בדקו אותי ✔')));
+    }
+    frame(P, card);
+    if (!read) KF.speak('כוונו את השעון לשעה ' + KF.clock.spoken(s.hour, s.minute));
+  }
+
 })();

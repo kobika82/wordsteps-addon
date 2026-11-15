@@ -102,14 +102,17 @@
     const learned = (c.tables || []).filter(t => t.learnedAt).map(t => t.n).sort((a, b) => a - b);
     const box = h('div.card', h('h2', '🎁 תרגול נוסף'));
 
-    if (!learned.length) {
-      box.append(h('p.muted', 'אפשר לתת תרגול נוסף אחרי שנלמדה כפולה אחת לפחות.'));
+    if (!learned.length && !Number(c.clockLevel)) {
+      box.append(h('p.muted', 'אפשר לתת תרגול נוסף אחרי שנלמדה כפולה, או אחרי שנפתחה רמת שעון.'));
       return box;
     }
 
     if (c.extra) {
+      const what = c.extra.type === 'clock'
+        ? `שעון — ${(CLOCK_LEVELS.find(l => l.id === c.extra.level) || {}).name || ''}`
+        : `כפולות ${(c.extra.tables || []).join(', ')}`;
       box.append(
-        h('p', h('b', 'ממתין לילד: '), `כפולות ${c.extra.tables.join(', ')} · ${c.extra.questions} שאלות · ⭐ ${c.extra.stars} כוכבים`),
+        h('p', h('b', 'ממתין לילד: '), `${what} · ${c.extra.questions} שאלות · ⭐ ${c.extra.stars} כוכבים`),
         h('p.small.muted', 'התרגול יופיע במסך הבית של הילד. הוא חד-פעמי — אחרי שיתחיל אותו הוא יורד מכאן.'),
         h('div.row', h('button.btn.danger', { onclick: (e) => KF.busy(e.currentTarget, async () => {
           await KF.del(`children/${c.id}/extra`); KF.toast('בוטל'); reload();
@@ -133,10 +136,43 @@
         h('button.btn.primary', { onclick: (e) => KF.busy(e.currentTarget, async () => {
           const tables = checks.map(l => l.querySelector('input')).filter(i => i.checked).map(i => +i.value);
           if (!tables.length) return KF.toast('צריך לבחור לפחות כפולה אחת', true);
-          const r = await KF.post(`children/${c.id}/extra`, { tables, stars: +stars.value, questions: +count.value });
+          const r = await KF.post(`children/${c.id}/extra`, { type: 'tables', tables, stars: +stars.value, questions: +count.value });
           KF.toast(r.notified && r.notified.ok ? 'נשלח לילד ✓' : 'נוצר (ההתראה לא נשלחה)', !(r.notified && r.notified.ok));
           reload();
-        }) }, 'שליחת תרגול נוסף')));
+        }) }, 'שליחת תרגול כפולות'),
+        // אותו תרגול נוסף, רק על שעון. אותם כוכבים ואותו מספר שאלות.
+        Number(c.clockLevel) ? h('button.btn', { onclick: (e) => KF.busy(e.currentTarget, async () => {
+          const r = await KF.post(`children/${c.id}/extra`, { type: 'clock', level: c.clockLevel, stars: +stars.value, questions: +count.value });
+          KF.toast(r.notified && r.notified.ok ? 'נשלח לילד ✓' : 'נוצר (ההתראה לא נשלחה)', !(r.notified && r.notified.ok));
+          reload();
+        }) }, '🕐 שליחת תרגול שעון') : null));
+    return box;
+  }
+
+  // ---------- שעון ----------
+  // רמות נפתחות אחת-אחת, כמו כפולות: ההורה מחליט מתי הילד מוכן לרבעים
+  // ומתי לכל חמש דקות.
+  const CLOCK_LEVELS = [
+    { id: 1, name: 'שעות עגולות וחצי' },
+    { id: 2, name: 'עם רבעים' },
+    { id: 3, name: 'כל 5 דקות' },
+  ];
+  function clockCard(c, reload) {
+    const open = Number(c.clockLevel) || 0;
+    const box = h('div.card', h('h2', '🕐 שעון'),
+      h('p.small.muted', 'מגרש המשחקים פתוח תמיד. שאלות נפתחות לפי הרמה שתבחרו כאן.'));
+    const row = h('div.row', { style: { flexWrap: 'wrap' } },
+      h('button.btn' + (open === 0 ? ' primary' : ''), { onclick: (e) => KF.busy(e.currentTarget, async () => {
+        await KF.post('children/' + c.id + '/clock-level', { level: 0 }); reload();
+      }) }, 'סגור'),
+      ...CLOCK_LEVELS.map(l => h('button.btn' + (open === l.id ? ' primary' : ''), {
+        onclick: (e) => KF.busy(e.currentTarget, async () => {
+          await KF.post('children/' + c.id + '/clock-level', { level: l.id }); reload();
+        })
+      }, l.name)));
+    box.append(row, h('p.small.muted', { style: { marginTop: '8px' } },
+      open ? 'כרגע פתוח: ' + CLOCK_LEVELS.find(l => l.id === open).name + '. כל רמה כוללת גם את הקודמות.'
+           : 'כרגע השאלות סגורות — הילד יכול רק לשחק עם השעון.'));
     return box;
   }
 
@@ -172,6 +208,7 @@
       h('div.card', h('h2', 'הכפולות'),
         h('p.small.muted', 'לחיצה על כפולה נעולה פותחת אותה והופכת אותה לכפולה היומית. לחיצה על כפולה פתוחה — אפשרויות נוספות.'),
         tables),
+      clockCard(c, reload),
       extraCard(c, reload),
       d.hard.length ? h('div.card', h('h2', '⚠️ עובדות קשות'),
         h('div.chips', d.hard.map(x => h('span.chip', { dir: 'ltr' }, `${x.a}×${x.b}=${x.a * x.b}`, h('span.small.muted', ` · ${x.wrong} טעויות`))))) : null,

@@ -6,6 +6,7 @@
 const U = require('./util');
 const M = require('./math');
 const RW = require('./rewards');
+const C = require('./clock');
 const { HttpError } = U;
 
 const isStudyDay = (child, date) => (child.days || []).includes(U.dowOf(date));
@@ -56,12 +57,14 @@ function homeState(store, child) {
   const tables = (child.tables || []).map(t => ({ n: t.n, learned: !!t.learnedAt, pct: M.tableState(facts, t.n).pct }));
   // תרגול נוסף שההורה נתן מוצג בנפרד, ולא תלוי בשלב שבו הילד נמצא
   const extra = child.extra
-    ? { tables: child.extra.tables, stars: Number(child.extra.stars) || 0, questions: Number(child.extra.questions) || 0 }
+    ? { type: child.extra.type || 'tables', tables: child.extra.tables || [], level: child.extra.level || null,
+        stars: Number(child.extra.stars) || 0, questions: Number(child.extra.questions) || 0 }
     : null;
-  if (!n) return { mode: 'none', tables, extra, date };
+  const clockLevel = Number(child.clockLevel) || 0;
+  if (!n) return { mode: 'none', tables, extra, clockLevel, date };
   const ph = phaseOf(store, child, date);
   const base = { table: n, needLearn: !tableRec(child, n)?.learnedAt, phase: ph.phase, phaseDay: ph.day, soloDays: ph.solo,
-    mixTables: learnedTables(child).length, state: M.tableState(facts, n), tables, date,
+    mixTables: learnedTables(child).length, state: M.tableState(facts, n), tables, date, clockLevel: Number(child.clockLevel) || 0,
     studyDay: isStudyDay(child, date) };
   const open = inProgress(store, child, date);
   if (open) return { ...base, extra, mode: 'resume', sessionId: open.id, kind: open.kind };
@@ -71,7 +74,7 @@ function homeState(store, child) {
 }
 
 function view(s) {
-  return { id: s.id, kind: s.kind, table: s.table, plan: s.plan, step: s.step, results: s.results };
+  return { id: s.id, kind: s.kind, subject: s.subject || 'tables', level: s.level || null, table: s.table, plan: s.plan, step: s.step, results: s.results };
 }
 
 // אורך התרגול קבוע בכל השלבים, כדי לא להעמיס: גם כשנלמדו הרבה כפולות.
@@ -91,9 +94,10 @@ function buildPlan(store, child, n) {
 // תרגול נוסף שההורה נתן: רק הכפולות שהוא בחר, ובלי תקרת mixMaxTables —
 // הוא כבר החליט על מה לתרגל, ואין טעם שהתוסף יצמצם לו את הבחירה.
 function buildExtraPlan(store, child, extra) {
+  const count = Number(extra.questions) || Number(store.data.settings.questions) || 10;
+  if (extra.type === 'clock') return C.buildQuiz(extra.level, count);
   const facts = store.childFacts(child.id);
   const tables = (extra.tables || []).map(Number).filter(Boolean);
-  const count = Number(extra.questions) || Number(store.data.settings.questions) || 10;
   return M.buildMix(facts, { tables, count, maxTables: tables.length || 1, lastSeen: {} });
 }
 
@@ -107,14 +111,33 @@ function startSession(store, child, { mode } = {}) {
   if (mode === 'extra') {
     const extra = child.extra;
     if (!extra) throw new HttpError(400, 'אין תרגול נוסף ממתין');
+    const clock = extra.type === 'clock';
     const s = {
       id: store.nextId('session'), childId: child.id, date, kind: 'extra',
-      table: extra.tables[0] || child.current, tables: extra.tables.slice(),
+      subject: clock ? 'clock' : 'tables',
+      table: clock ? null : (extra.tables[0] || child.current),
+      tables: clock ? [] : extra.tables.slice(),
+      level: clock ? Number(extra.level) || 1 : null,
       extraStars: Number(extra.stars) || 0, phase: 'extra',
       plan: buildExtraPlan(store, child, extra),
       step: 0, results: {}, status: 'in_progress', createdAt: U.now().toISOString(), completedAt: null, summary: null
     };
     delete child.extra;
+    store.data.sessions.push(s);
+    store.save();
+    return view(s);
+  }
+
+  // תרגול שעון חופשי: הילד יכול לתרגל כמה שירצה, בלי כוכבים. הרמה היא
+  // זו שההורה פתח לו, כדי שלא יתרגל שעות שעוד לא למד.
+  if (mode === 'clock') {
+    const level = Math.min(Number(child.clockLevel) || 1, 3);
+    const s = {
+      id: store.nextId('session'), childId: child.id, date, kind: 'practice', subject: 'clock',
+      table: null, tables: [], level, phase: 'clock',
+      plan: C.buildQuiz(level, Number(store.data.settings.questions) || 10),
+      step: 0, results: {}, status: 'in_progress', createdAt: U.now().toISOString(), completedAt: null, summary: null
+    };
     store.data.sessions.push(s);
     store.save();
     return view(s);
@@ -162,11 +185,25 @@ function markLearned(store, child, id, step) {
 // אילו מספרים נכפלו בשאלה — לעדכון השליטה בעובדה
 function factOf(st) { return [st.a, st.b]; }
 
+const isClock = st => st && (st.t === 'clock-read' || st.t === 'clock-set');
+
 function answer(store, child, id, step, value) {
   const s = ownSession(store, child, id);
   const st = s.plan[step];
   if (!st || st.t === 'learn') throw new HttpError(400, 'שלב לא תקין');
   if (s.results[step]) return { correct: s.results[step].correct, answer: st.answer, plan: s.plan, again: true };
+
+  // שאלות שעון אינן עובדות כפל: אין מה לרשום בלוח השליטה, והחזרה על
+  // טעות היא אותה שאלה בדיוק — לראות את אותו שעון שוב זה הלימוד.
+  if (isClock(st)) {
+    const correct = C.check(st, value);
+    s.results[step] = { answer: String(value ?? ''), correct };
+    if (!correct && !st.retry) s.plan.push({ ...st, retry: true });
+    s.step = Math.max(s.step, step + 1);
+    store.save();
+    return { correct, answer: st.answer, plan: s.plan };
+  }
+
   const given = Number(String(value ?? '').trim());
   const correct = Number.isFinite(given) && given === st.answer;
   const [a, b] = factOf(st);
@@ -212,28 +249,29 @@ function complete(store, child, id) {
     child.stars = (child.stars || 0) + stars;
     child.starsEarned = (child.starsEarned || 0) + stars;
   }
+  const clock = (s.subject || 'tables') === 'clock';
   const weakMap = new Map();
-  for (const x of first.filter(y => !y.r.correct)) {
+  if (!clock) for (const x of first.filter(y => !y.r.correct)) {
     const [a, b] = factOf(x.st);
     weakMap.set(M.factKey(a, b), { a, b, product: a * b });
   }
-  const tState = M.tableState(store.childFacts(child.id), s.table);
+  const tState = clock ? { pct: 0 } : M.tableState(store.childFacts(child.id), s.table);
   s.status = 'completed';
   s.completedAt = U.now().toISOString();
   s.summary = {
-    total, correct, pct, stars, streak, streakBonus, table: s.table, phase: s.phase || '', learned: s.plan.some(x => x.t === 'learn'),
+    total, correct, pct, stars, streak, streakBonus, table: s.table, subject: s.subject || 'tables', phase: s.phase || '', learned: s.plan.some(x => x.t === 'learn'),
     weak: [...weakMap.values()], tablePct: tState.pct, message: praise(pct)
   };
   // סוף ימי התרגול על הכפולה לבד — זו נקודת ההחלטה של ההורה: לפתוח כפולה חדשה,
   // או שמחר מתחילה חזרה על כל הכפולות. הודעה אחת לכל כפולה.
-  const rec = tableRec(child, s.table);
+  const rec = clock ? null : tableRec(child, s.table);
   let ready = false;
-  if (s.kind === 'daily' && rec && child.current === s.table && !rec.readyAt && s.phase !== 'mix') {
+  if (!clock && s.kind === 'daily' && rec && child.current === s.table && !rec.readyAt && s.phase !== 'mix') {
     const ph = phaseOf(store, child, U.addDays(s.date, 1));
     if (ph && ph.phase === 'mix') { rec.readyAt = s.completedAt; ready = true; }
   }
   store.save();
-  return { ...s.summary, kind: s.kind, totalStars: child.stars || 0, ready };
+  return { ...s.summary, kind: s.kind, subject: s.subject || 'tables', level: s.level || null, totalStars: child.stars || 0, ready };
 }
 
 // סוף יום: תרגולים שלא הסתיימו מסומנים כנטושים, כדי שמחר יתחיל תרגול חדש
