@@ -344,10 +344,19 @@ table.grid10 td { width: 38px; height: 32px; text-align: center; font-size: 13px
   letter-spacing: 2px; direction: ltr; unicode-bidi: isolate; color: var(--ink); line-height: 1.1; }
 .clock-digital .ampm { font-size: 18px; font-weight: 600; color: var(--muted); letter-spacing: 0; }
 .clock-wrap { display: flex; flex-direction: column; align-items: center; gap: 14px; }
-.clock-legend { display: flex; gap: 16px; justify-content: center; font-size: 14px; color: var(--muted); }
-.clock-legend i { display: inline-block; width: 22px; height: 5px; border-radius: 3px; vertical-align: middle; margin-left: 6px; }
-.clock-legend i.h { background: var(--kid-b); }
-.clock-legend i.m { background: var(--kid-a); }
+/* בורר המחוג. הוא גם המקרא: הפס בכפתור הוא בדיוק צבע המחוג שהוא מזיז */
+.handpicker { display: flex; gap: 10px; justify-content: center; margin: 12px 0 2px; }
+.handpick { display: flex; align-items: center; gap: 8px; background: #fff; border: 3px solid var(--line);
+  border-radius: 16px; padding: 8px 12px; font-weight: 700; font-size: 15px; color: var(--muted);
+  white-space: nowrap; }
+.handpick::before { content: ''; width: 24px; height: 6px; border-radius: 3px; background: var(--line); }
+.handpick.minute.on::before, .handpick.minute::before { background: var(--kid-a); }
+.handpick.hour.on::before, .handpick.hour::before { background: var(--kid-b); }
+.handpick.on { color: var(--ink); box-shadow: 0 3px 0 rgba(0,0,0,.08); }
+.handpick.minute.on { border-color: var(--kid-a); background: #fff7ed; }
+.handpick.hour.on { border-color: var(--kid-b); background: #eff6ff; }
+/* המחוג שלא נבחר מעומעם — הבורר לבדו לא מספיק כדי לדעת מה עומד לזוז */
+.clockface.sel-minute .cf-hour, .clockface.sel-hour .cf-min-hand { opacity: .35; }
 .clock-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 .clock-grid button { background: #fff; border: 3px solid var(--line); border-radius: 18px; padding: 8px; }
 .clock-grid button.right { border-color: var(--kid-c); background: #dcfce7; }

@@ -49,10 +49,15 @@
     let minute = opts.minute ?? 10;
     const step = opts.step || 1;       // קפיצות הגרירה של מחוג הדקות
     const draggable = !!opts.draggable;
+    // הגרירה מזיזה את המחוג שנבחר, ולא את זה שקרוב לאצבע. ניחוש לפי קרבה
+    // נראה חכם עד שילד מזיז דקות ופתאום קופץ מחוג השעות.
+    let hand = opts.hand === 'hour' ? 'hour' : 'minute';
 
     // ה-viewBox רחב מהלוח כדי שמספרי הדקות שיושבים מחוצה לו — 0, 15, 30, 45 —
     // לא ייחתכו בקצוות. בלי השוליים האלה דווקא הרבעים, שהם החשובים, נעלמים.
-    const svg = el('svg', { viewBox: '-8 -8 116 116', class: 'clockface', width: size, height: size,
+    // כשמסתירים אותם הלוח נפרש על כל התיבה במקום להשאיר שוליים ריקים.
+    const BOX = { on: '-8 -8 116 116', off: '-2 -2 104 104' };
+    const svg = el('svg', { viewBox: BOX.on, class: 'clockface', width: size, height: size,
       role: 'img', 'aria-label': 'שעון אנלוגי' });
     if (draggable) svg.classList.add('drag');
 
@@ -79,15 +84,22 @@
       svg.appendChild(t);
     }
 
-    // המספרים הקטנים של הדקות (5,10,...) — עוזרים לספור בלי לנחש
-    if (opts.minuteNumbers !== false) {
-      for (let m = 5; m <= 60; m += 5) {
-        const a = (m / 60) * 2 * Math.PI - Math.PI / 2;
-        const t = el('text', { x: cx + Math.cos(a) * (R + 4.5), y: cy + Math.sin(a) * (R + 4.5) + 1.6, class: 'cf-min' });
-        t.textContent = String(m === 60 ? 0 : m);
-        svg.appendChild(t);
-      }
+    // המספרים הקטנים של הדקות (5,10,...) — עוזרים לספור בלי לנחש. הם בקבוצה
+    // אחת כדי שאפשר יהיה לכבות אותם בלי לבנות את הלוח מחדש: אחרי שהילד כבר
+    // יודע לספור חמישיות, הם קביים שכדאי להוריד.
+    const mins = el('g', { class: 'cf-mins' });
+    for (let m = 5; m <= 60; m += 5) {
+      const a = (m / 60) * 2 * Math.PI - Math.PI / 2;
+      const t = el('text', { x: cx + Math.cos(a) * (R + 4.5), y: cy + Math.sin(a) * (R + 4.5) + 1.6, class: 'cf-min' });
+      t.textContent = String(m === 60 ? 0 : m);
+      mins.appendChild(t);
     }
+    svg.appendChild(mins);
+    function showMinutes(on) {
+      mins.style.display = on ? '' : 'none';
+      svg.setAttribute('viewBox', on ? BOX.on : BOX.off);
+    }
+    showMinutes(opts.minuteNumbers !== false);
 
     const hourHand = el('line', { class: 'cf-hand cf-hour', 'stroke-linecap': 'round' });
     const minHand = el('line', { class: 'cf-hand cf-min-hand', 'stroke-linecap': 'round' });
@@ -110,30 +122,17 @@
     draw();
 
     // ---------- גרירה ----------
-    // בוחרים את המחוג שקצהו קרוב יותר לנקודת הלחיצה, וממשיכים איתו עד
-    // שמרפים. בלי זה כל נגיעה הייתה קופצת בין המחוגים.
+    // גוררים את המחוג שנבחר בבורר, בכל מקום על הלוח. אין כאן ניחוש: נגיעה
+    // ליד מחוג אחד לא מזיזה את השני, וילד יכול לגרור מהשפה גם את מחוג
+    // השעות הקצר.
     let active = null;
-    const polarAt = (ev) => {
+    const angleAt = (ev) => {
       const r = svg.getBoundingClientRect();
       const x = ev.clientX - (r.left + r.width / 2);
       const y = ev.clientY - (r.top + r.height / 2);
       let a = Math.atan2(y, x) + Math.PI / 2;
       if (a < 0) a += 2 * Math.PI;
-      const unit = (r.width / 116) * R;        // 116 = רוחב ה-viewBox עם השוליים
-      return { frac: a / (2 * Math.PI), rad: Math.hypot(x, y) / unit };
-    };
-    const angleAt = (ev) => polarAt(ev).frac;
-    const pick = (ev) => {
-      const { frac, rad } = polarAt(ev);
-      // נגיעה קרוב לשפה היא תמיד מחוג הדקות — רק הוא מגיע לשם. בלי זה
-      // גרירה לצד הנגדי הייתה נתפסת כמחוג השעות רק כי הזווית קרובה אליו.
-      if (rad > 0.62) return 'minute';
-      // ולהפך: קרוב למרכז רק מחוג השעות קצר מספיק כדי להיתפס שם. בלי זה,
-      // כששני המחוגים מצביעים לאותו כיוון, אי אפשר היה לגעת בקצר.
-      if (rad < 0.50) return 'hour';
-      const dMin = Math.abs(((frac - minute / 60 + 1.5) % 1) - 0.5);
-      const dHour = Math.abs(((frac - ((hour % 12) + minute / 60) / 12 + 1.5) % 1) - 0.5);
-      return dHour < dMin ? 'hour' : 'minute';
+      return a / (2 * Math.PI);                 // 0..1 סביב הלוח
     };
     const apply = (ev) => {
       const frac = angleAt(ev);
@@ -142,9 +141,10 @@
         minute = ((m % 60) + 60) % 60;
       } else {
         // גרירת מחוג השעות משנה רק את השעה; הדקות נשארות
-        // מחוג שעומד בין 7 ל-8 הוא 7, כמו בשעון אמיתי — ולא 8 כי הוא קרוב יותר.
-        // עיגול לספרה הקרובה היה הופך 7:30 ל-8:30 בדיוק במקום שבו המחוג צריך לעמוד.
-        const hh = Math.floor(frac * 12) % 12;
+        // הדקות כבר ידועות, ולכן ידוע גם כמה מחוג השעות אמור להיות מוסט מהספרה:
+        // ב-7:30 הוא חצי מקטע אחרי ה-7. מחסרים את ההיסט ומעגלים — וכך 7:30 מתקבל
+        // כשהמחוג באמצע בין 7 ל-8, ו-1:00 מתקבל גם כשהאצבע החטיאה את ה-1 בפיקסל.
+        const hh = (((Math.round(frac * 12 - minute / 60) % 12) + 12) % 12);
         hour = (hour >= 12 ? 12 : 0) + hh;
       }
       draw();
@@ -152,7 +152,7 @@
     };
     if (draggable) {
       svg.addEventListener('pointerdown', (ev) => {
-        active = pick(ev);
+        active = hand;
         // תפיסת המצביע היא שיפור ולא תנאי: אם היא נכשלת הגרירה עדיין עובדת
         // בתוך הלוח, ולכן אסור לה להפיל את הטיפול בלחיצה.
         try { svg.setPointerCapture(ev.pointerId); } catch (e) { /* ללא תפיסה */ }
@@ -165,10 +165,21 @@
       svg.addEventListener('pointercancel', stop);
     }
 
+    // המחוג הנבחר מודגש על הלוח עצמו, כדי שהבורר לא יהיה ההבטחה היחידה
+    // לגבי מה עומד לזוז.
+    function markHand() {
+      svg.classList.toggle('sel-hour', draggable && hand === 'hour');
+      svg.classList.toggle('sel-minute', draggable && hand === 'minute');
+    }
+    markHand();
+
     return {
       el: svg,
       get hour() { return hour; },
       get minute() { return minute; },
+      get hand() { return hand; },
+      setHand(h) { hand = h === 'hour' ? 'hour' : 'minute'; markHand(); },
+      showMinutes,
       set(h, m) { hour = ((h % 24) + 24) % 24; minute = ((m % 60) + 60) % 60; draw(); },
     };
   }

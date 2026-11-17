@@ -522,11 +522,35 @@
     onclick: (e) => { H24 = !H24; e.currentTarget.textContent = H24 ? '🕐 24 שעות' : '🕐 12 שעות'; onChange(); }
   }, H24 ? '🕐 24 שעות' : '🕐 12 שעות');
 
+  // מספרי הדקות סביב הלוח. גם זו העדפה של הילד ולא של שאלה: מי שכבר סופר
+  // חמישיות לבד רוצה לוח נקי, ומי שעוד לא — צריך אותם גם בשאלה.
+  let MINNUM = true;
+  const minLabel = () => (MINNUM ? '🔢 עם מספרי דקות' : '🔢 בלי מספרי דקות');
+  const minToggle = (...faces) => h('button.btn', {
+    onclick: (e) => { MINNUM = !MINNUM; e.currentTarget.textContent = minLabel(); faces.forEach(f => f.showMinutes(MINNUM)); }
+  }, minLabel());
+
+  // בורר המחוג. הוא גם מקרא הצבעים — אין טעם בשני רכיבים שאומרים
+  // "כחול זה שעות", אחד מהם שקוף ללחיצה.
+  function handPicker(face, onPick) {
+    const mk = (which, label) => h('button.handpick.' + which, { onclick: () => set(which) }, label);
+    const bMin = mk('minute', 'מחוג הדקות');
+    const bHour = mk('hour', 'מחוג השעות');
+    function set(which) {
+      face.setHand(which);
+      bMin.classList.toggle('on', which === 'minute');
+      bHour.classList.toggle('on', which === 'hour');
+      if (onPick) onPick(which);
+    }
+    set(face.hand);
+    return h('div.handpicker', bMin, bHour);
+  }
+
   async function clockPage() {
     const d = await KF.get('child/home').catch(() => ({}));
     const level = d.clockLevel || 0;
 
-    const face = KF.clock.face({ size: 300, hour: 10, minute: 10, draggable: true, onChange: () => sync() });
+    const face = KF.clock.face({ size: 300, hour: 10, minute: 10, draggable: true, minuteNumbers: MINNUM, onChange: () => sync() });
     const out = h('div');
     const amPm = h('button.btn', { onclick: () => { face.set((face.hour + 12) % 24, face.minute); sync(); } }, '🌙/☀️');
     const input = h('input.time-input', { type: 'text', inputmode: 'numeric', placeholder: '10:10', value: '10:10' });
@@ -556,12 +580,10 @@
       h('div.hello', 'השעון שלי 🕐'),
       h('div.kid-card.center',
         h('div.clock-wrap', face.el, out),
-        h('div.clock-legend',
-          h('span', h('i.h'), 'מחוג השעות'),
-          h('span', h('i.m'), 'מחוג הדקות')),
-        h('p.muted.small', 'אפשר לגרור את המחוגים — והשעה למטה משתנה'),
+        handPicker(face),
+        h('p.muted.small', 'בוחרים מחוג, גוררים אותו — והשעה למטה משתנה'),
         h('div.row.center', { style: { justifyContent: 'center', marginTop: '10px' } },
-          h24Toggle(sync), amPm, KF.speakBtn(() => KF.clock.spoken(face.hour, face.minute)))),
+          h24Toggle(sync), amPm, minToggle(face), KF.speakBtn(() => KF.clock.spoken(face.hour, face.minute)))),
       h('div.kid-card.center',
         h('h3', 'או שכותבים שעה — והמחוגים יזוזו'),
         input),
@@ -597,7 +619,7 @@
     };
 
     if (read) {
-      const face = KF.clock.face({ size: 250, hour: s.hour, minute: s.minute });
+      const face = KF.clock.face({ size: 250, hour: s.hour, minute: s.minute, minuteNumbers: MINNUM });
       card.append(h('div.clock-wrap', face.el));
       const btns = s.options.map(o => h('button.opt', { onclick: () => submit(o, (ok) => {
         btns.forEach((b, i) => {
@@ -606,7 +628,8 @@
         });
       }) }, h('span.en', H24 ? o : KF.clock.digital(+o.slice(0, 2), +o.slice(3), false))));
       card.append(h('div.opts', btns));
-      card.append(h('div.row.center', { style: { justifyContent: 'center' } }, h24Toggle(() => clockQuestion(P, s))));
+      card.append(h('div.row.center', { style: { justifyContent: 'center' } },
+        h24Toggle(() => clockQuestion(P, s)), minToggle(face)));
     } else {
       // כאן השעה נתונה, והילד מזיז את המחוגים. מתחילים משעה אחרת בכוונה —
       // אבל באותה מחצית יום כמו התשובה, כדי שהילד יפתור בגרירה ולא ייתקע
@@ -614,16 +637,16 @@
       const half = s.hour < 12 ? 0 : 12;
       // הכפתור כתוב במילים ולא באייקון בלבד — ילד לא אמור לנחש מה הסמל עושה
       const halfBtn = h('button.btn', { onclick: () => { face.set((face.hour + 12) % 24, face.minute); halfBtn.textContent = face.hour < 12 ? '☀️ בוקר' : '🌙 אחר הצהריים'; } });
-      // 12 בדיוק היה מניח את מחוג השעות מתחת למחוג הדקות שעומד על 0,
-      // ושום נגיעה לא הייתה מבדילה ביניהם. לכן נופלים ל-7 במקרה הזה.
+      // 12 בדיוק היה מניח את מחוג השעות בדיוק מתחת למחוג הדקות שעומד על 0,
+      // ושני המחוגים היו נראים כאחד. לכן נופלים ל-7 במקרה הזה.
       const start = ((s.hour + 5) % 12) || 7;
-      const face = KF.clock.face({ size: 250, hour: half + start, minute: 0, draggable: true, step: s.step || 5 });
+      const face = KF.clock.face({ size: 250, hour: half + start, minute: 0, draggable: true, step: s.step || 5, minuteNumbers: MINNUM });
       halfBtn.textContent = face.hour < 12 ? '☀️ בוקר' : '🌙 אחר הצהריים';
       card.append(digi(s.hour, s.minute), h('div.clock-wrap', face.el),
-        h('p.muted.small', 'גררו את המחוגים לשעה שלמעלה'),
-        h('div.row.center', { style: { justifyContent: 'center' } },
-          halfBtn,
-          h('button.big-btn.green', { onclick: () => submit(KF.clock.pad(face.hour) + ':' + KF.clock.pad(face.minute)) }, 'בדקו אותי ✔')));
+        handPicker(face),
+        h('p.muted.small', 'בוחרים מחוג, וגוררים אותו לשעה שלמעלה'),
+        h('div.row.center', { style: { justifyContent: 'center' } }, halfBtn, minToggle(face)),
+        h('button.big-btn.green', { onclick: () => submit(KF.clock.pad(face.hour) + ':' + KF.clock.pad(face.minute)) }, 'בדקו אותי ✔'));
     }
     frame(P, card);
     if (!read) KF.speak('כוונו את השעון לשעה ' + KF.clock.spoken(s.hour, s.minute));
