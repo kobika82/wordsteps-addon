@@ -115,3 +115,49 @@ test('אפשר לכבות את מספרי הדקות, והלוח מתרחב לת
   const off = CLOCK.face({ minuteNumbers: false });
   assert.strictEqual(off.el.getAttribute('viewBox'), tight, 'אפשר לפתוח כבוי מראש');
 });
+
+test('מחוג הדקות גורר איתו את השעה כשהוא עובר מעל ה-12', () => {
+  // 2:59 ועוד דקה הוא 3:00, לא 2:00. בלי זה הילד מגלה שבשעון הזה אי אפשר
+  // להגיע לשעה הבאה, וזה בדיוק הקשר שהוא אמור ללמוד.
+  const f = CLOCK.face({ hour: 2, minute: 55, draggable: true, step: 1 });
+  f.el.fire('pointerdown', at(55 / 60, 0.8));
+  for (const m of [56, 57, 58, 59]) f.el.fire('pointermove', at(m / 60, 0.8));
+  f.el.fire('pointermove', at(0, 0.8));
+  f.el.fire('pointerup', at(0, 0.8));
+  assert.strictEqual(hhmm(f), '03:00');
+
+  // וגם אחורה: מ-3:00 דקה אחורה היא 2:59
+  f.el.fire('pointerdown', at(0, 0.8));
+  f.el.fire('pointermove', at(59 / 60, 0.8));
+  f.el.fire('pointerup', at(59 / 60, 0.8));
+  assert.strictEqual(hhmm(f), '02:59');
+});
+
+test('נגיעה בודדת קובעת דקות ולא מזיזה את השעה', () => {
+  // מי שנוגע ישר על ה-55 כשהשעון על 3:05 התכוון לדקות, לא לחזור ל-2.
+  const f = CLOCK.face({ hour: 3, minute: 5, draggable: true, step: 5 });
+  f.el.fire('pointerdown', at(55 / 60, 0.8));
+  f.el.fire('pointerup', at(55 / 60, 0.8));
+  assert.strictEqual(hhmm(f), '03:55');
+});
+
+test('סיבוב שלם קדימה מקדם שעה אחת בדיוק', () => {
+  const f = CLOCK.face({ hour: 8, minute: 0, draggable: true, step: 5 });
+  f.el.fire('pointerdown', at(0, 0.8));
+  for (let m = 5; m <= 60; m += 5) f.el.fire('pointermove', at((m % 60) / 60, 0.8));
+  f.el.fire('pointerup', at(0, 0.8));
+  assert.strictEqual(hhmm(f), '09:00');
+});
+
+test('מעבר חצות עובד לשני הכיוונים', () => {
+  const f = CLOCK.face({ hour: 23, minute: 55, draggable: true, step: 5 });
+  f.el.fire('pointerdown', at(55 / 60, 0.8));
+  f.el.fire('pointermove', at(0, 0.8));
+  f.el.fire('pointerup', at(0, 0.8));
+  assert.strictEqual(hhmm(f), '00:00');
+
+  f.el.fire('pointerdown', at(0, 0.8));
+  f.el.fire('pointermove', at(55 / 60, 0.8));
+  f.el.fire('pointerup', at(55 / 60, 0.8));
+  assert.strictEqual(hhmm(f), '23:55');
+});

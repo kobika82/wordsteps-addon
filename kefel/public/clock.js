@@ -134,10 +134,26 @@
       if (a < 0) a += 2 * Math.PI;
       return a / (2 * Math.PI);                 // 0..1 סביב הלוח
     };
-    const apply = (ev) => {
+    // המיקום הקודם של האצבע סביב הלוח, כדי לדעת אם היא חצתה את ה-12
+    // ולאיזה כיוון. נגיעה ראשונה לא נחשבת חצייה — מי שנוגע ישר על ה-50
+    // התכוון לקבוע דקות, לא להזיז שעה.
+    let lastFrac = null;
+    const apply = (ev, first) => {
       const frac = angleAt(ev);
       if (active === 'minute') {
+        if (!first && lastFrac != null) {
+          // התנועה הקצרה בין שתי הנקודות. אם היא עברה מעל ה-12, השעה זזה
+          // איתה — בשעון אמיתי מ-2:59 ממשיכים ל-3:00 ולא קופצים ל-2:00.
+          let d = frac - lastFrac;
+          if (d > 0.5) d -= 1;
+          if (d < -0.5) d += 1;
+          const moved = lastFrac + d;
+          if (moved >= 1) hour = (hour + 1) % 24;
+          else if (moved < 0) hour = (hour + 23) % 24;
+        }
+        lastFrac = frac;
         const m = Math.round((frac * 60) / step) * step;
+        // עיגול ל-60 הוא בעצם 0 של הסיבוב הבא, והשעה כבר קודמה למעלה
         minute = ((m % 60) + 60) % 60;
       } else {
         // גרירת מחוג השעות משנה רק את השעה; הדקות נשארות
@@ -153,14 +169,15 @@
     if (draggable) {
       svg.addEventListener('pointerdown', (ev) => {
         active = hand;
+        lastFrac = null;
         // תפיסת המצביע היא שיפור ולא תנאי: אם היא נכשלת הגרירה עדיין עובדת
         // בתוך הלוח, ולכן אסור לה להפיל את הטיפול בלחיצה.
         try { svg.setPointerCapture(ev.pointerId); } catch (e) { /* ללא תפיסה */ }
-        apply(ev);
+        apply(ev, true);
         ev.preventDefault();
       });
       svg.addEventListener('pointermove', (ev) => { if (active) apply(ev); });
-      const stop = (ev) => { if (active) { active = null; try { svg.releasePointerCapture(ev.pointerId); } catch (e) { /* שוחרר */ } } };
+      const stop = (ev) => { if (active) { active = null; lastFrac = null; try { svg.releasePointerCapture(ev.pointerId); } catch (e) { /* שוחרר */ } } };
       svg.addEventListener('pointerup', stop);
       svg.addEventListener('pointercancel', stop);
     }
