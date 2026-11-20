@@ -231,6 +231,60 @@ route('GET', '/api/children/:id', 'admin', async ({ params }) => {
       .sort((a, b) => b.wrong - a.wrong).slice(0, 12).map(r => ({ a: r.a, b: r.b, wrong: r.wrong, status: M.status(r) }))
   };
 });
+// ---------- היסטוריית תרגולים ----------
+// מסך אחד לכל מה שבוצע: גם כפולות וגם שעון, גם כל הילדים יחד. הנתונים
+// כבר קיימים בסשנים — מה שחסר היה תצוגה שמאחדת אותם לפי יום, כי זו
+// השאלה שההורה באמת שואל: מה קרה היום, וכמה כוכבים זה נתן.
+route('GET', '/api/history', 'admin', async ({ query }) => {
+  const childId = Number(query.get('child')) || null;
+  const days = Math.min(365, Math.max(7, Number(query.get('days')) || 60));
+  const from = U.addDays(U.today(), -(days - 1));
+  const names = Object.fromEntries(store.data.children.map(c => [c.id, c.name]));
+
+  const rows = store.data.sessions
+    .filter(s => s.status === 'completed' && s.date >= from && (!childId || s.childId === childId))
+    .map(s => {
+      const sum = s.summary || {};
+      const subject = sum.subject || s.subject || 'tables';
+      return {
+        id: s.id, date: s.date, childId: s.childId, childName: names[s.childId] || '—',
+        subject, kind: s.kind,
+        // מה תרגלו: כפולה, או רמת שעון
+        what: subject === 'clock' ? CL.levelOf(s.level).name
+          : sum.phase === 'mix' ? 'חזרה על הכול' : '×' + (s.table ?? '—'),
+        learned: !!sum.learned,
+        total: sum.total || 0, correct: sum.correct || 0, pct: sum.pct || 0,
+        stars: sum.stars || 0, streakBonus: sum.streakBonus || 0,
+        weak: (sum.weak || []).map(w => w.a + '×' + w.b),
+        at: s.completedAt || null,
+      };
+    })
+    .sort((a, b) => (a.date === b.date ? b.id - a.id : (a.date < b.date ? 1 : -1)));
+
+  // קיבוץ לפי יום, עם סיכום כוכבים ליום
+  const byDay = [];
+  for (const r of rows) {
+    let d = byDay[byDay.length - 1];
+    if (!d || d.date !== r.date) { d = { date: r.date, rows: [], stars: 0, tables: 0, clock: 0 }; byDay.push(d); }
+    d.rows.push(r);
+    d.stars += r.stars;
+    if (r.subject === 'clock') d.clock++; else d.tables++;
+  }
+
+  return {
+    days: byDay,
+    children: store.data.children.map(c => ({ id: c.id, name: c.name })),
+    totals: {
+      sessions: rows.length,
+      stars: rows.reduce((a, r) => a + r.stars, 0),
+      tables: rows.filter(r => r.subject !== 'clock').length,
+      clock: rows.filter(r => r.subject === 'clock').length,
+      activeDays: byDay.length,
+    },
+    range: { from, to: U.today(), days },
+  };
+});
+
 route('POST', '/api/children', 'admin', async ({ body }) => {
   const c = sanitizeChild(body, {
     id: store.nextId('child'), name: '', gender: '', notifyTime: '16:00', days: [0, 1, 2, 3, 4], haUserId: '', notifyService: '',

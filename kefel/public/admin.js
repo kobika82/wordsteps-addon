@@ -13,7 +13,7 @@
   const ST_CLS = { mastered: 'st-m', good: 'st-g', learning: 'st-l', weak: 'st-w', new: 'st-n' };
   const badge = (map, k) => { const [t, c] = map[k] || [k, '']; return h('span.badge' + (c ? '.' + c : ''), t); };
 
-  const NAV = [['#/', 'לוח בקרה'], ['#/children', 'ילדים'], ['#/stars', 'כוכבים ופרסים'], ['#/settings', 'הגדרות']];
+  const NAV = [['#/', 'לוח בקרה'], ['#/children', 'ילדים'], ['#/history', 'היסטוריה'], ['#/stars', 'כוכבים ופרסים'], ['#/settings', 'הגדרות']];
   function page(title, ...content) {
     document.body.classList.remove('kid');
     document.body.classList.add('admin');
@@ -31,6 +31,7 @@
     KF.route('/child/new', () => childForm(null));
     KF.route('/child/:id', id => childPage(Number(id)));
     KF.route('/child/:id/edit', id => childForm(Number(id)));
+    KF.route('/history', historyPage);
     KF.route('/stars', starsPage);
     KF.route('/settings', settings);
     KF.route('/try/:n', n => tryTable(Number(n)));
@@ -414,4 +415,80 @@
       }) }, 'שמירה'),
       h('p.small.muted', { style: { marginTop: '14px' } }, `חיבור ל-HA: ${d.status.ha.connected ? 'מחובר' : 'לא מחובר'} · קישור בהתראות: ${d.status.panelUrl || '(לא נקבע)'}`));
   }
+
+  // ---------- היסטוריית תרגולים ----------
+  // מסך אחד לשני המקצועות ולכל הילדים, מקובץ לפי יום. הכוכבים מסוכמים
+  // לכל יום, כי זו השאלה שחוזרת: כמה הוא הרוויח היום.
+  let hFilter = { child: '', days: 60, subject: '' };
+
+  async function historyPage() {
+    const q = new URLSearchParams();
+    if (hFilter.child) q.set('child', hFilter.child);
+    q.set('days', hFilter.days);
+    const d = await KF.get('history?' + q);
+
+    const pill = (label, value, hint) => h('div.kpi', h('b', value), h('span', label), hint ? h('small', hint) : null);
+    const subjectTag = (r) => (r.subject === 'clock'
+      ? h('span.badge.info', '🕐 שעון')
+      : h('span.badge', '✖️ כפל'));
+
+    const filters = h('div.row.filters',
+      h('label', 'ילד',
+        h('select', { onchange: e => { hFilter.child = e.target.value; historyPage(); } },
+          h('option', { value: '' }, 'כולם'),
+          d.children.map(c => h('option', { value: c.id, selected: String(c.id) === String(hFilter.child) }, c.name)))),
+      h('label', 'טווח',
+        h('select', { onchange: e => { hFilter.days = Number(e.target.value); historyPage(); } },
+          [[14, 'שבועיים'], [30, 'חודש'], [60, 'חודשיים'], [180, 'חצי שנה'], [365, 'שנה']].map(([n, t]) =>
+            h('option', { value: n, selected: n === hFilter.days }, t)))),
+      h('label', 'מקצוע',
+        h('select', { onchange: e => { hFilter.subject = e.target.value; historyPage(); } },
+          h('option', { value: '' }, 'הכול'),
+          h('option', { value: 'tables', selected: hFilter.subject === 'tables' }, 'לוח הכפל'),
+          h('option', { value: 'clock', selected: hFilter.subject === 'clock' }, 'שעון'))));
+
+    const keep = r => !hFilter.subject || (hFilter.subject === 'clock' ? r.subject === 'clock' : r.subject !== 'clock');
+    const days = d.days.map(day => ({ ...day, rows: day.rows.filter(keep) })).filter(day => day.rows.length);
+    const shown = days.reduce((a, x) => a + x.rows.length, 0);
+    const shownStars = days.reduce((a, x) => a + x.rows.reduce((b, r) => b + r.stars, 0), 0);
+
+    page('היסטוריית תרגולים',
+      filters,
+      h('div.kpis',
+        pill('תרגולים', shown),
+        pill('כוכבים', '⭐ ' + shownStars),
+        pill('ימים עם תרגול', days.length, `מתוך ${d.range.days}`),
+        pill('לוח הכפל', d.totals.tables),
+        pill('שעון', d.totals.clock)),
+
+      days.length ? h('div', days.map(day => {
+        const dayStars = day.rows.reduce((a, r) => a + r.stars, 0);
+        return h('div.card.day',
+          h('div.day-head',
+            h('h2', KF.fmtDate(day.date), h('span.dow', ' · ' + dowName(day.date))),
+            h('span.day-stars', dayStars ? '⭐ ' + dayStars : '—')),
+          h('div.table-wrap', h('table.t',
+            h('tr', h('th', 'ילד'), h('th', 'מקצוע'), h('th', 'מה תורגל'), h('th', 'סוג'),
+              h('th', 'נכון'), h('th', 'כוכבים'), h('th', 'טעויות')),
+            day.rows.map(r => h('tr',
+              h('td', r.childName),
+              h('td', subjectTag(r)),
+              h('td', r.what),
+              h('td.small', kindText(r)),
+              h('td', `${r.correct}/${r.total}`, h('span.muted.small', ` (${r.pct}%)`)),
+              h('td', r.stars ? h('b', '+' + r.stars) : '—',
+                r.streakBonus ? h('span.badge.ok.small', ' 🔥 ' + r.streakBonus) : null),
+              h('td.small', { dir: 'ltr', style: { textAlign: 'right' } }, r.weak.join(', ') || '—'))))));
+      }))
+        : h('div.card', h('p.muted', 'אין תרגולים בטווח הזה.')));
+  }
+
+  const DOW_FULL = ['ראשון', 'שני', 'שלישי', 'רביעי', 'חמישי', 'שישי', 'שבת'];
+  function dowName(iso) { return 'יום ' + DOW_FULL[new Date(iso + 'T00:00:00Z').getUTCDay()]; }
+  function kindText(r) {
+    if (r.subject === 'clock') return r.kind === 'extra' ? 'תרגול מההורה' : 'תרגול חופשי';
+    if (r.kind === 'extra') return 'תרגול נוסף';
+    return r.learned ? 'יומי + לימוד' : 'יומי';
+  }
+
 })();
