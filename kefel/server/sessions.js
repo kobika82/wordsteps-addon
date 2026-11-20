@@ -250,6 +250,19 @@ function complete(store, child, id) {
     child.starsEarned = (child.starsEarned || 0) + stars;
   }
   const clock = (s.subject || 'tables') === 'clock';
+  // תרגול השעון הראשון בכל יום מזכה בכוכבים, בנוסף למה שהתרגול עצמו נותן.
+  // בלי זה לתרגול חופשי של השעון אין שום תמורה, והוא פשוט לא נעשה.
+  let clockDaily = 0;
+  if (clock && store.data.settings.clockDailyBonus) {
+    const earlier = store.data.sessions.some(x => x.childId === child.id && x.id !== s.id
+      && x.date === s.date && x.status === 'completed' && (x.subject || 'tables') === 'clock');
+    if (!earlier) {
+      clockDaily = Number(store.data.settings.clockDailyStars) || 0;
+      stars += clockDaily;
+      child.stars = (child.stars || 0) + clockDaily;
+      child.starsEarned = (child.starsEarned || 0) + clockDaily;
+    }
+  }
   const weakMap = new Map();
   if (!clock) for (const x of first.filter(y => !y.r.correct)) {
     const [a, b] = factOf(x.st);
@@ -259,7 +272,7 @@ function complete(store, child, id) {
   s.status = 'completed';
   s.completedAt = U.now().toISOString();
   s.summary = {
-    total, correct, pct, stars, streak, streakBonus, table: s.table, subject: s.subject || 'tables', phase: s.phase || '', learned: s.plan.some(x => x.t === 'learn'),
+    total, correct, pct, stars, streak, streakBonus, clockDaily, table: s.table, subject: s.subject || 'tables', phase: s.phase || '', learned: s.plan.some(x => x.t === 'learn'),
     weak: [...weakMap.values()], tablePct: tState.pct, message: praise(pct)
   };
   // סוף ימי התרגול על הכפולה לבד — זו נקודת ההחלטה של ההורה: לפתוח כפולה חדשה,
@@ -324,5 +337,50 @@ function retroStreakBonus(store) {
   return granted;
 }
 
+// בונוס השעון היומי, רטרואקטיבית על תרגולי שעון שכבר בוצעו.
+//
+// רץ פעם אחת לכל תרגול: הסימון הוא קיום השדה clockDaily בסיכום, ולכן
+// הרצה חוזרת אחרי הפעלה מחדש לא מעניקה שוב. הכלל חל רק על הראשון בכל
+// יום, בדיוק כמו קדימה.
+function retroClockDaily(store) {
+  const granted = [];
+  if (!store.data.settings.clockDailyBonus) return granted;
+  const per = Number(store.data.settings.clockDailyStars) || 0;
+  if (!per) return granted;
+
+  for (const child of store.data.children) {
+    const old = store.data.sessions
+      .filter(x => x.childId === child.id && x.status === 'completed'
+        && (x.subject || 'tables') === 'clock' && x.summary && !('clockDaily' in x.summary))
+      .sort((a, b) => (a.date === b.date ? a.id - b.id : a.date.localeCompare(b.date)));
+    if (!old.length) continue;
+
+    // יום שכבר קיבל את הבונוס (מתרגול חדש יותר) לא מקבל אותו שוב
+    const paid = new Set(store.data.sessions
+      .filter(x => x.childId === child.id && x.summary && x.summary.clockDaily > 0)
+      .map(x => x.date));
+
+    let total = 0;
+    const dates = [];
+    for (const x of old) {
+      const first = !paid.has(x.date);
+      x.summary.clockDaily = first ? per : 0;
+      if (first) {
+        x.summary.stars = (x.summary.stars || 0) + per;
+        paid.add(x.date);
+        total += per;
+        dates.push(x.date);
+      }
+    }
+    if (total) {
+      child.stars = (child.stars || 0) + total;
+      child.starsEarned = (child.starsEarned || 0) + total;
+      granted.push({ child, stars: total, dates });
+    }
+  }
+  store.save();
+  return granted;
+}
+
 module.exports = { isStudyDay, tableRec, learnedTables, homeState, startSession, markLearned, answer, complete,
-  closeStale, previewPlan, dailyDone, inProgress, factOf, phaseOf, retroStreakBonus };
+  closeStale, previewPlan, dailyDone, inProgress, factOf, phaseOf, retroStreakBonus, retroClockDaily };

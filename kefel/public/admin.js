@@ -380,7 +380,9 @@
       soloDays: h('input', { type: 'number', min: 0, max: 14, value: s.soloDays ?? 2, style: { maxWidth: '100px' } }),
       mixMax: h('input', { type: 'number', min: 1, max: 10, value: s.mixMaxTables ?? 4, style: { maxWidth: '100px' } }),
       done: chk(s.notifyAdminSessionDone), ready: chk(s.notifyAdminReady), unlock: chk(s.notifyChildOnUnlock), sum: chk(s.notifyAdminDaySummary),
-      sumTime: h('input', { type: 'text', value: s.summaryTime, placeholder: 'HH:MM', style: { maxWidth: '110px' } })
+      sumTime: h('input', { type: 'text', value: s.summaryTime, placeholder: 'HH:MM', style: { maxWidth: '110px' } }),
+      clockBonus: chk(s.clockDailyBonus !== false),
+      clockStars: h('input', { type: 'number', min: 0, max: 50, value: s.clockDailyStars ?? 5, style: { maxWidth: '100px' } })
     };
     if (s.adminNotifyService && !services.services.includes(s.adminNotifyService)) I.service.append(h('option', { value: s.adminNotifyService, selected: true }, s.adminNotifyService));
     const admins = users.users.filter(u => !u.isAdmin).map(u => ({ u, cb: chk(s.adminUserIds.includes(u.id)) }));
@@ -401,6 +403,13 @@
           h('label.f', h('span', 'בחזרה: כמה כפולות לכל היותר בתרגול'), I.mixMax)),
         h('p.small.muted', 'סדר הימים בכל כפולה חדשה: יום לימוד + שאלות, אחר כך ימים על הכפולה לבד, ואז — עד שתפתחו כפולה חדשה — חזרה על כל הכפולות שנלמדו. בסוף ימי הכפולה לבד תגיע אליכם הודעה. הימים נספרים לפי תרגולים שהושלמו, כך שיום שהוחמץ לא "נשרף".'),
         h('p.small.muted', 'כדי לא להעמיס, התרגול באותו אורך בכל השלבים. בחזרה נבחרות בכל יום עד כמה כפולות (קודם החלשות, ואז אלה שלא חזרו עליהן הכי הרבה זמן), כך שכולן חוזרות לאורך הימים. שאלה שנענתה לא נכון חוזרת בסוף התרגול, ולא נספרת שוב בציון.')),
+      h('div.card', h('h2', '🕐 השעון'),
+        h('div.checks', { style: { flexDirection: 'column' } },
+          h('label', I.clockBonus, 'תרגול השעון הראשון בכל יום מזכה בכוכבים')),
+        h('div.grid3', { style: { marginTop: '10px' } },
+          h('label.f', h('span', 'כמה כוכבים'), I.clockStars)),
+        h('p.small.muted', 'הכוכבים ניתנים בנוסף למה שהתרגול עצמו נותן, ופעם אחת ביום — בין אם זה תרגול חופשי ובין אם זה תרגול שאתם שלחתם. בלי זה לתרגול חופשי של השעון אין שום תמורה, והוא פשוט לא נעשה.'),
+        h('p.small.muted', 'ביטול הכלל עוצר אותו מכאן והלאה; כוכבים שכבר ניתנו נשארים.')),
       admins.length ? h('div.card', h('h2', 'הורים נוספים'),
         h('p.small.muted', 'מנהלי Home Assistant מזוהים כהורים אוטומטית. כאן אפשר להוסיף משתמשים שאינם מנהלים.'),
         h('div.checks', admins.map(x => h('label', x.cb, x.u.name)))) : null,
@@ -409,6 +418,7 @@
           adminNotifyService: I.service.value, questions: +I.questions.value, soloDays: +I.soloDays.value, mixMaxTables: +I.mixMax.value,
           notifyAdminSessionDone: I.done.checked, notifyAdminReady: I.ready.checked, notifyChildOnUnlock: I.unlock.checked,
           notifyAdminDaySummary: I.sum.checked, summaryTime: I.sumTime.value,
+          clockDailyBonus: I.clockBonus.checked, clockDailyStars: +I.clockStars.value,
           adminUserIds: [...s.adminUserIds.filter(id => !admins.some(x => x.u.id === id)), ...admins.filter(x => x.cb.checked).map(x => x.u.id)]
         });
         KF.toast('נשמר ✓');
@@ -477,7 +487,8 @@
               h('td.small', kindText(r)),
               h('td', `${r.correct}/${r.total}`, h('span.muted.small', ` (${r.pct}%)`)),
               h('td', r.stars ? h('b', '+' + r.stars) : '—',
-                r.streakBonus ? h('span.badge.ok.small', ' 🔥 ' + r.streakBonus) : null),
+                r.streakBonus ? h('span.badge.ok.small', ' 🔥 ' + r.streakBonus) : null,
+                r.clockDaily ? h('span.badge.info.small', ' 🕐 ' + r.clockDaily) : null),
               h('td.small', { dir: 'ltr', style: { textAlign: 'right' } }, r.weak.join(', ') || '—'))))));
       }))
         : h('div.card', h('p.muted', 'אין תרגולים בטווח הזה.')));

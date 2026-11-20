@@ -22,6 +22,8 @@ function emptyData() {
       notifyAdminDaySummary: false,  // סיכום יומי להורה
       summaryTime: '20:30',          // שעת הסיכום והקנס (אם מוגדר)
       stars: null,                   // נוסחת הכוכבים; null = ברירת המחדל ב-rewards.js
+      clockDailyBonus: true,         // תרגול השעון הראשון בכל יום מזכה בכוכבים
+      clockDailyStars: 5,            // כמה
       rewards: [                     // קטלוג הפרסים; ההורה יכול לשנות הכול
         { id: 1, emoji: '🎲', name: 'משחק קופסה עם אבא או אמא', cost: 40, active: true },
         { id: 2, emoji: '🍦', name: 'גלידה', cost: 60, active: true },

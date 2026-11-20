@@ -254,7 +254,7 @@ route('GET', '/api/history', 'admin', async ({ query }) => {
           : sum.phase === 'mix' ? 'חזרה על הכול' : '×' + (s.table ?? '—'),
         learned: !!sum.learned,
         total: sum.total || 0, correct: sum.correct || 0, pct: sum.pct || 0,
-        stars: sum.stars || 0, streakBonus: sum.streakBonus || 0,
+        stars: sum.stars || 0, streakBonus: sum.streakBonus || 0, clockDaily: sum.clockDaily || 0,
         weak: (sum.weak || []).map(w => w.a + '×' + w.b),
         at: s.completedAt || null,
       };
@@ -473,6 +473,8 @@ route('PUT', '/api/settings', 'admin', async ({ body }) => {
   if ('soloDays' in body) s.soloDays = int(body.soloDays, 0, 14, 2);
   if ('mixMaxTables' in body) s.mixMaxTables = int(body.mixMaxTables, 1, 10, 4);
   for (const k of ['notifyAdminSessionDone', 'notifyAdminReady', 'notifyChildOnUnlock', 'notifyAdminDaySummary']) if (k in body) s[k] = !!body[k];
+  if ('clockDailyBonus' in body) s.clockDailyBonus = !!body.clockDailyBonus;
+  if ('clockDailyStars' in body) s.clockDailyStars = int(body.clockDailyStars, 0, 50, 5);
   if ('summaryTime' in body && U.toMinutes(body.summaryTime) != null) s.summaryTime = body.summaryTime;
   if ('adminUserIds' in body && Array.isArray(body.adminUserIds)) s.adminUserIds = body.adminUserIds.map(String);
   store.save();
@@ -564,6 +566,10 @@ async function init() {
     }
   }
   if (options.panel_url) scheduler.setPanelUrl(options.panel_url);
+  // בונוס השעון היומי על תרגולים שקדמו לכלל — פעם אחת, עם הודעה להורה
+  for (const g of S.retroClockDaily(store)) {
+    scheduler.notice(store, `${g.child.name} קיבל/ה ${g.stars} כוכבים רטרואקטיבית על תרגולי השעון שכבר ביצע/ה (${g.dates.length === 1 ? 'יום אחד' : g.dates.length + ' ימים'}).`);
+  }
   // בונוס רצף על תרגולים שקדמו לבונוס — פעם אחת, עם הודעה להורה בלוח הבקרה
   for (const g of S.retroStreakBonus(store)) {
     const verb = g.child.gender === 'f' ? 'קיבלה' : g.child.gender === 'm' ? 'קיבל' : 'קיבלו';

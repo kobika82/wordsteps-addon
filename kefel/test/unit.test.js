@@ -210,3 +210,74 @@ test('מסיח המחוגים המוחלפים נשאר באותה מחצית י
       `${C.hhmm(swapped.hour, swapped.minute)} אינו במחצית של ${hour}`);
   }
 });
+
+// ---- בונוס השעון היומי ----
+const { Store } = require('../server/store');
+const S2 = require('../server/sessions');
+const os = require('os');
+const pathm = require('path');
+const fsm = require('fs');
+
+function tmpStore() {
+  const dir = fsm.mkdtempSync(pathm.join(os.tmpdir(), 'kefel-'));
+  const st = new Store(dir);
+  st.data.children.push({ id: 1, name: 'דני', gender: 'm', tables: [], current: null, stars: 0, starsEarned: 0, active: true });
+  return st;
+}
+const clockSession = (st, date, id, stars) => {
+  const s = { id, childId: 1, date, kind: 'clock', subject: 'clock', level: 2, status: 'completed',
+    summary: { total: 10, correct: 10, pct: 100, stars: stars || 0, weak: [] } };
+  st.data.sessions.push(s);
+  return s;
+};
+
+test('בונוס רטרואקטיבי: כוכבים ליום אחד בכל יום שבו תורגל שעון', () => {
+  const st = tmpStore();
+  clockSession(st, '2026-11-15', 1);
+  clockSession(st, '2026-11-15', 2);     // שני באותו יום — לא מזכה
+  clockSession(st, '2026-11-16', 3);
+  const got = S2.retroClockDaily(st);
+  assert.strictEqual(got.length, 1);
+  assert.strictEqual(got[0].stars, 10, 'שני ימים × 5');
+  assert.deepStrictEqual(got[0].dates, ['2026-11-15', '2026-11-16']);
+  assert.strictEqual(st.data.children[0].stars, 10);
+  assert.strictEqual(st.data.sessions[0].summary.clockDaily, 5);
+  assert.strictEqual(st.data.sessions[1].summary.clockDaily, 0, 'השני באותו יום');
+  assert.strictEqual(st.data.sessions[0].summary.stars, 5, 'הכוכבים נוספו גם לסיכום');
+});
+
+test('הרצה חוזרת של הבונוס הרטרואקטיבי לא מעניקה שוב', () => {
+  const st = tmpStore();
+  clockSession(st, '2026-11-15', 1);
+  S2.retroClockDaily(st);
+  const after = st.data.children[0].stars;
+  assert.strictEqual(S2.retroClockDaily(st).length, 0);
+  assert.strictEqual(st.data.children[0].stars, after);
+});
+
+test('כיבוי הכלל עוצר גם את הרטרואקטיבי', () => {
+  const st = tmpStore();
+  st.data.settings.clockDailyBonus = false;
+  clockSession(st, '2026-11-15', 1);
+  assert.strictEqual(S2.retroClockDaily(st).length, 0);
+  assert.strictEqual(st.data.children[0].stars, 0);
+  assert.ok(!('clockDaily' in st.data.sessions[0].summary), 'לא מסומן, כדי שהפעלה מחדש תעניק');
+});
+
+test('כמות הכוכבים נלקחת מההגדרות', () => {
+  const st = tmpStore();
+  st.data.settings.clockDailyStars = 12;
+  clockSession(st, '2026-11-15', 1);
+  S2.retroClockDaily(st);
+  assert.strictEqual(st.data.children[0].stars, 12);
+});
+
+test('יום שכבר קיבל בונוס מתרגול חדש לא מקבל שוב רטרואקטיבית', () => {
+  const st = tmpStore();
+  const paid = clockSession(st, '2026-11-15', 5);
+  paid.summary.clockDaily = 5;           // כבר שולם ע"י התרגול החדש
+  clockSession(st, '2026-11-15', 1);     // ישן יותר, אותו יום
+  S2.retroClockDaily(st);
+  assert.strictEqual(st.data.children[0].stars, 0, 'היום כבר שולם');
+  assert.strictEqual(st.data.sessions[1].summary.clockDaily, 0);
+});
