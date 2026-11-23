@@ -5,6 +5,7 @@ const { localParts, toMinutes, now } = require('./util');
 const ha = require('./ha');
 const S = require('./sessions');
 const RW = require('./rewards');
+const C = require('./clock');
 
 const NOTIFY_WINDOW_MIN = 240;   // לא שולחים התראה יומית יותר מ-4 שעות אחרי השעה שנקבעה
 const RETRY_MIN = 10;
@@ -76,18 +77,50 @@ async function childTick(store, child, p) {
 }
 
 // ---------- דיווח להורה ----------
+
+// מה בדיוק תורגל, במילים. נגזר מ-subject ומ-phase ולא מ-table לבדו:
+// בתרגול שעון אין כפולה כלל ו-table הוא null, ומה שיצא מזה קודם היה
+// "תרגול בכפולות של null".
+function doneSubject(sum) {
+  if ((sum.subject || 'tables') === 'clock') return `שעון · ${C.levelOf(sum.level).name}`;
+  if (sum.phase === 'mix') return 'חזרה על כל הכפולות';
+  const tables = (sum.tables || []).filter(Boolean);
+  if (tables.length > 1) return `כפולות של ${tables.join(', ')}`;
+  return `כפולות של ${tables[0] || sum.table}`;
+}
+
 function doneMessage(child, sum) {
-  let m = `${child.name} ${word(child.gender, 'סיים', 'סיימה', 'סיימו')} תרגול ${sum.phase === 'mix' ? 'חזרה על כל הכפולות' : 'בכפולות של ' + sum.table}`
-    + `${sum.learned ? ' (כולל שלב הלימוד)' : ''}: ${sum.correct} מתוך ${sum.total} נכון (${sum.pct}%)`;
+  const did = word(child.gender, 'סיים', 'סיימה', 'סיימו');
+  // תרגול ששלחת נאמר במפורש: אתה בחרת אותו ואת הכוכבים שלו, ואתה
+  // מחכה לדיווח דווקא עליו.
+  const lead = sum.kind === 'extra'
+    ? `${child.name} ${did} את התרגול ששלחת — ${doneSubject(sum)}`
+    : `${child.name} ${did} את התרגול היומי — ${doneSubject(sum)}`;
+  let m = lead + `${sum.learned ? ' (כולל שלב הלימוד)' : ''}: ${sum.correct} מתוך ${sum.total} נכון (${sum.pct}%)`;
   if (sum.stars) m += ` · +${sum.stars} ⭐`;
   if (sum.weak.length) m += `\nטעויות: ${sum.weak.slice(0, 5).map(w => `${w.a}×${w.b}`).join(', ')}`;
   return m;
 }
+
+// שני סוגי תרגול מדווחים, ושלישי לא.
+//
+// `daily` ו-`extra` — כן. השני הוא התרגול שההורה עצמו שלח, כולל תרגול
+// שעון, והוא זה שנושא את הכוכבים שההורה קבע. הוא חיכה לדיווח עליו ולא
+// קיבל אותו.
+//
+// `practice` (תרגול שעון חופשי) — לא. הילד יכול לפתוח את מגרש המשחקים
+// של השעון עשר פעמים בערב, ועשר התראות על אותו ילד הן הדרך הבטוחה
+// ללמד להתעלם מהן.
+const REPORTED_KINDS = new Set(['daily', 'extra']);
+
 async function notifySessionDone(store, child, sum) {
   const s = store.data.settings;
-  if (sum.kind !== 'daily' || !s.notifyAdminSessionDone || !s.adminNotifyService) return null;
-  return send(store, { childId: child.id, kind: 'session-done', service: s.adminNotifyService,
-    title: 'לוח הכפל — תרגול הושלם', message: doneMessage(child, sum) });
+  if (!REPORTED_KINDS.has(sum.kind) || !s.notifyAdminSessionDone || !s.adminNotifyService) return null;
+  return send(store, {
+    childId: child.id, kind: 'session-done', service: s.adminNotifyService,
+    title: sum.kind === 'extra' ? 'לוח הכפל — התרגול ששלחת הושלם' : 'לוח הכפל — תרגול הושלם',
+    message: doneMessage(child, sum)
+  });
 }
 
 // סוף ימי הכפולה לבד: ההורה מחליט — לפתוח כפולה חדשה, או לתת לחזרה על כל הכפולות להתחיל מחר
@@ -156,5 +189,5 @@ function start(store) {
   return setInterval(() => tick(store).catch(e => console.error(e)), 30000);
 }
 
-module.exports = { start, tick, send, notice, setPanelUrl, getPanelUrl, dailyMessage, notifySessionDone, notifyReady,
+module.exports = { start, tick, send, notice, setPanelUrl, getPanelUrl, dailyMessage, notifySessionDone, notifyReady, doneMessage, doneSubject,
   daySummary, doneMessage, TITLE };

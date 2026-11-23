@@ -272,7 +272,7 @@ function complete(store, child, id) {
   s.status = 'completed';
   s.completedAt = U.now().toISOString();
   s.summary = {
-    total, correct, pct, stars, streak, streakBonus, clockDaily, table: s.table, subject: s.subject || 'tables', phase: s.phase || '', learned: s.plan.some(x => x.t === 'learn'),
+    total, correct, pct, stars, streak, streakBonus, clockDaily, table: s.table, tables: (s.tables || []).slice(), subject: s.subject || 'tables', phase: s.phase || '', learned: s.plan.some(x => x.t === 'learn'),
     weak: [...weakMap.values()], tablePct: tState.pct, message: praise(pct)
   };
   // סוף ימי התרגול על הכפולה לבד — זו נקודת ההחלטה של ההורה: לפתוח כפולה חדשה,

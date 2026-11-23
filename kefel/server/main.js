@@ -87,7 +87,7 @@ function sanitizeChild(input, base = {}) {
   if (has('notifyTime')) c.notifyTime = U.toMinutes(input.notifyTime) != null ? input.notifyTime : '16:00';
   if (has('days')) c.days = (Array.isArray(input.days) ? input.days : []).map(Number).filter(d => d >= 0 && d <= 6);
   if (has('haUserId')) c.haUserId = String(input.haUserId || '');
-  if (has('notifyService')) c.notifyService = /^mobile_app_[a-z0-9_]+$/.test(input.notifyService || '') ? input.notifyService : '';
+  if (has('notifyService')) c.notifyService = ha.isNotifyTarget(input.notifyService) ? input.notifyService : '';
   if (has('active')) c.active = !!input.active;
   if (has('reminderEnabled')) c.reminderEnabled = !!input.reminderEnabled;
   if (has('reminderAfterMin')) c.reminderAfterMin = int(input.reminderAfterMin, 15, 720, 120);
@@ -468,7 +468,7 @@ function systemStatus() {
 route('GET', '/api/settings', 'admin', async () => ({ settings: store.data.settings, status: systemStatus() }));
 route('PUT', '/api/settings', 'admin', async ({ body }) => {
   const s = store.data.settings;
-  if ('adminNotifyService' in body) s.adminNotifyService = /^mobile_app_[a-z0-9_]+$/.test(body.adminNotifyService || '') ? body.adminNotifyService : '';
+  if ('adminNotifyService' in body) s.adminNotifyService = ha.isNotifyTarget(body.adminNotifyService) ? body.adminNotifyService : '';
   if ('questions' in body) s.questions = int(body.questions, 4, 30, 10);
   if ('soloDays' in body) s.soloDays = int(body.soloDays, 0, 14, 2);
   if ('mixMaxTables' in body) s.mixMaxTables = int(body.mixMaxTables, 1, 10, 4);

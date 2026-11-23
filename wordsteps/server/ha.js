@@ -68,15 +68,25 @@ async function listUsers() {
   return list;
 }
 
+// מי יכול לקבל התראות. **כלל אחד** שמשרת גם את הרשימה שהמסך מציג וגם
+// את הבדיקה בשרת: כששניהם נפרדים, המסך מציע אפשרות שהשרת זורק בשקט,
+// וזה בדיוק מה שקרה כאן.
+//
+// קבוצת התראות (למשל notify.koby_phone) מתקבלת בכוונה. הקבוצה קיימת
+// כדי שהחלפת נייד תהיה שינוי במקום אחד; בלעדיה כל החלפת מכשיר שוברת
+// את ההתראות כאן בלי שום סימן — השירות הישן ממשיך להתקיים ב-HA,
+// ה-API מחזיר הצלחה, וההתראה פשוט לא מגיעה לאף אחד.
+const isNotifyTarget = (s) => /^(mobile_app_[a-z0-9_]+|[a-z0-9_]+_phone)$/.test(s || '');
+
 async function notifyServices() {
   const services = await rest('GET', '/services');
   const notify = services.find(s => s.domain === 'notify');
-  return Object.keys(notify?.services || {}).filter(s => s.startsWith('mobile_app_')).sort();
+  return Object.keys(notify?.services || {}).filter(isNotifyTarget).sort();
 }
 
 // שליחת התראה לאפליקציית הטלפון. url פותח את הנתיב בתוך אפליקציית HA
 async function notify(service, { title, message, url }) {
-  if (!/^mobile_app_[a-z0-9_]+$/.test(service || '')) throw new HttpError(400, 'שירות התראה לא תקין');
+  if (!isNotifyTarget(service)) throw new HttpError(400, 'שירות התראה לא תקין');
   const data = url ? { url, clickAction: url } : undefined;
   await rest('POST', `/services/notify/${service}`, { title, message, data });
 }
@@ -95,4 +105,4 @@ async function selfInfo() {
   } catch (e) { return null; }
 }
 
-module.exports = { mode, connected, rest, wsCommand, listUsers, notifyServices, notify, config, selfInfo };
+module.exports = { mode, connected, rest, wsCommand, listUsers, notifyServices, notify, config, selfInfo, isNotifyTarget };

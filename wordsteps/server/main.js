@@ -109,7 +109,7 @@ function sanitizeChild(input, base = {}) {
   if (has('dayTimes')) c.dayTimes = Object.fromEntries([0, 1, 2, 3, 4, 5, 6].map(d => [d, U.toMinutes((input.dayTimes || {})[d]) != null ? input.dayTimes[d] : '']).filter(([, t]) => t));
   if (has('days')) c.days = (Array.isArray(input.days) ? input.days : []).map(Number).filter(d => d >= 0 && d <= 6);
   if (has('haUserId')) c.haUserId = String(input.haUserId || '');
-  if (has('notifyService')) c.notifyService = /^mobile_app_[a-z0-9_]+$/.test(input.notifyService || '') ? input.notifyService : '';
+  if (has('notifyService')) c.notifyService = ha.isNotifyTarget(input.notifyService) ? input.notifyService : '';
   if (has('active')) c.active = !!input.active;
   if (has('topics')) c.topics = (Array.isArray(input.topics) ? input.topics : []).filter(t => C.TOPICS[t]);
   if (has('exerciseTypes')) c.exerciseTypes = (Array.isArray(input.exerciseTypes) ? input.exerciseTypes : []).filter(t => C.EXERCISE_TYPES.includes(t));
@@ -692,7 +692,7 @@ route('GET', '/api/holiday-suggestions', 'admin', async () => {
 route('GET', '/api/settings', 'admin', async () => ({ settings: store.data.settings, status: await systemStatus() }));
 route('PUT', '/api/settings', 'admin', async ({ body }) => {
   const s = store.data.settings;
-  if ('adminNotifyService' in body) s.adminNotifyService = /^mobile_app_[a-z0-9_]+$/.test(body.adminNotifyService || '') ? body.adminNotifyService : '';
+  if ('adminNotifyService' in body) s.adminNotifyService = ha.isNotifyTarget(body.adminNotifyService) ? body.adminNotifyService : '';
   if ('prepTime' in body && U.toMinutes(body.prepTime) != null) s.prepTime = body.prepTime;
   if ('daysAhead' in body) s.daysAhead = int(body.daysAhead, 1, 14, 1);
   if ('imageSource' in body && ['arasaac', 'openverse', 'gemini', 'none'].includes(body.imageSource)) s.imageSource = body.imageSource;

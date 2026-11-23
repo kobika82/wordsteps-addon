@@ -1017,7 +1017,7 @@
         h('p.small.muted', '"כל שנה" — החופשה חוזרת כל שנה באותם תאריכים לועזיים (למשל חופש גדול).')),
       h('div.card', h('h2', 'הודעה יומית למנהל'),
         h('p.small.muted', 'נשלחת רק כשיש מילים שממתינות לאישור, או כשלילד נשארו מילים מאושרות לפחות מ-3 ימים.'),
-        h('div.grid3', field('שעת ההודעה', I.prepTime), field('המכשיר שלך להודעות', I.adminNotifyService)),
+        h('div.grid3', field('שעת ההודעה', I.prepTime), field('המכשיר שלך להודעות', I.adminNotifyService, 'אפשר לבחור קבוצת התראות (למשל koby_phone) במקום מכשיר — אז החלפת נייד לא תשבור את ההתראות כאן.')),
         h('div.row', { style: { marginTop: '10px' } },
           h('button.btn.sm', { onclick: (e) => WS.busy(e.currentTarget, async () => { const r = await WS.post('settings/test-admin-notify', { service: I.adminNotifyService.value }); r.ok ? WS.toast('נשלחה ✓') : WS.toast('נכשלה: ' + r.error, true); }) }, '📨 התראת בדיקה למנהל'))),
       h('div.card', h('h2', '🤖 בדיקת מילים אוטומטית ב-Gemini'),
