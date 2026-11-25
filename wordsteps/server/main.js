@@ -728,6 +728,7 @@ route('PUT', '/api/settings', 'admin', async ({ body }) => {
     }));
   }
   if (typeof body.summaryTime === 'string' && /^[0-9]{2}:[0-9]{2}$/.test(body.summaryTime)) s.summaryTime = body.summaryTime;
+  if (typeof body.penaltyTime === 'string' && /^[0-9]{2}:[0-9]{2}$/.test(body.penaltyTime)) s.penaltyTime = body.penaltyTime;
   if (body.aiReview && typeof body.aiReview === 'object') {
     const a = body.aiReview;
     s.aiReview = { enabled: !!a.enabled, perDay: int(a.perDay, 1, 100, 10), intervalMin: int(a.intervalMin, 5, 1440, 60), retryMin: int(a.retryMin, 1, 1440, 10) };

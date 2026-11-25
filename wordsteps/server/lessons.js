@@ -507,6 +507,12 @@ function complete(store, child, lessonId) {
   };
   lesson.status = 'completed';
   lesson.completedAt = nowIso();
+  // תרגול אחרי שהקנס ירד: הסיבה לקנס בטלה, והכוכבים חוזרים
+  const refunded = rewards.refundMissPenalty(store, child, lesson.date);
+  if (refunded) {
+    lesson.summary.penaltyRefunded = refunded;
+    lesson.summary.totalStars = child.stars;
+  }
   store.save();
   return lesson.summary;
 }

@@ -158,7 +158,8 @@ function daySummary(store, date) {
 async function penaltyTick(store, p) {
   const s = store.data.settings;
   if (s.lastPenaltyDate === p.date) return;
-  const at = toMinutes(s.summaryTime || '20:30');
+  // שעה נפרדת מהסיכום, ובכוונה מאוחרת יותר: הקנס קובע שהיום נגמר.
+  const at = toMinutes(s.penaltyTime || '22:00');
   if (at == null || p.minutes < at) return;
   s.lastPenaltyDate = p.date;
   const hit = [];
@@ -169,7 +170,7 @@ async function penaltyTick(store, p) {
     if (done) continue;
     // אין מילים מאושרות זו אשמת ההורה, לא של הילד
     if (!L.poolInfo(store, c).available) continue;
-    const lost = rewards.applyMissPenalty(store, c);
+    const lost = rewards.applyMissPenalty(store, c, p.date);
     if (lost) hit.push({ child: c, lost });
   }
   store.save();

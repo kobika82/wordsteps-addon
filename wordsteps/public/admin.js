@@ -947,6 +947,7 @@
       notifyAdminLessonDone: h('input', { type: 'checkbox', checked: s.notifyAdminLessonDone !== false }),
       notifyAdminDaySummary: h('input', { type: 'checkbox', checked: s.notifyAdminDaySummary !== false }),
       summaryTime: h('input', { type: 'time', value: s.summaryTime || '20:30' }),
+      penaltyTime: h('input', { type: 'time', value: s.penaltyTime || '22:00' }),
       starBase: h('input', { type: 'number', min: 0, max: 50, value: (s.stars || {}).base ?? 3 }),
       starMax: h('input', { type: 'number', min: 1, max: 200, value: (s.stars || {}).max ?? 12 }),
       starStreak: h('input', { type: 'number', min: 0, max: 20, value: (s.stars || {}).streakBonus ?? 2 })
@@ -1056,7 +1057,10 @@
       h('div.card', h('h2', '📊 דיווח להורה'),
         h('label.checks', I.notifyAdminLessonDone, ' להודיע לי מיד כשילד מסיים שיעור'),
         h('label.checks', { style: { marginTop: '8px' } }, I.notifyAdminDaySummary, ' לשלוח לי סיכום יומי: מי למד ומי לא'),
-        h('div.grid3', { style: { marginTop: '10px' } }, field('שעת הסיכום היומי', I.summaryTime)),
+        h('div.grid3', { style: { marginTop: '10px' } },
+          field('שעת הסיכום היומי', I.summaryTime),
+          field('שעת הקנס על יום שהוחמץ', I.penaltyTime,
+            'עד השעה הזו עוד אפשר לתרגל ולמנוע את הקנס. תרגול אחריה מחזיר את הכוכבים שירדו.')),
         h('p.small.muted', "הסיכום נשלח אחרי שהיום נגמר, כי רק אז אפשר לדעת מי החמיץ. הוא נשלח גם כשכולם למדו, כי \"הכול בוצע\" הוא מידע ושתיקה אינה.")),
       h('div.card', h('h2', '🎁 כוכבים ופרסים'),
         h('p.small.muted', 'הכוכבים ניתנים לפי שיעור ההצלחה בשיעור, לא לפי מספר התשובות — אחרת שיעור ארוך שווה יותר משיעור טוב.'),
@@ -1077,6 +1081,7 @@
           imageSource: I.imageSource.value, notifyReviewDays: I.notifyReviewDays.checked,
           notifyAdminLessonDone: I.notifyAdminLessonDone.checked,
           notifyAdminDaySummary: I.notifyAdminDaySummary.checked, summaryTime: I.summaryTime.value,
+          penaltyTime: I.penaltyTime.value,
           stars: { base: +I.starBase.value, max: +I.starMax.value, streakBonus: +I.starStreak.value },
           rewards: rewRows.filter(r => r.el.isConnected && r.name.value.trim())
             .map(r => ({ id: r.id, emoji: r.emoji.value, name: r.name.value.trim(), cost: +r.cost.value, active: r.act.checked })),

@@ -99,12 +99,27 @@ function economy(store, cost) {
 
 // קנס על יום לימוד שהוחמץ. היתרה לא יורדת מתחת לאפס: חוב כוכבים הוא
 // מצב שאי אפשר להתאושש ממנו, וזה הופך את התוכנית למרתיעה במקום למניעה.
-function applyMissPenalty(store, child) {
+function applyMissPenalty(store, child, date) {
   const p = Number(starsConf(store).missPenalty) || 0;
   if (p <= 0) return 0;
   const before = child.stars || 0;
   child.stars = Math.max(0, before - p);
-  return before - child.stars;
+  const lost = before - child.stars;
+  // נשמר כמה בדיוק ירד ומתי, כדי שאפשר יהיה להחזיר אם הילד יתרגל
+  // בכל זאת מאוחר יותר באותו ערב. בלי זה הקנס סופי גם כשהסיבה לו
+  // בטלה חצי שעה אחר כך.
+  if (lost) child.missPenalty = { date, stars: lost };
+  return lost;
+}
+
+// תרגול שנעשה אחרי שהקנס כבר ירד, באותו יום. הקנס היה על כך שהיום
+// נגמר בלי תרגול — וזה כבר לא נכון.
+function refundMissPenalty(store, child, date) {
+  const m = child.missPenalty;
+  if (!m || m.date !== date || !m.stars) return 0;
+  child.stars = (child.stars || 0) + m.stars;
+  delete child.missPenalty;
+  return m.stars;
 }
 function pending(store, childId = null) {
   return store.data.redemptions.filter((x) => x.status === 'pending' && (childId == null || x.childId === childId));
@@ -145,4 +160,4 @@ function decide(store, id, approve) {
 }
 
 module.exports = { starsForLesson, streakOf, catalogFor, request, decide, pending, rewards, active,
-  setGoal, goalOf, starsConf, lessonsFor, economy, applyMissPenalty, DEFAULT_STARS };
+  setGoal, goalOf, starsConf, lessonsFor, economy, applyMissPenalty, refundMissPenalty, DEFAULT_STARS };

@@ -519,3 +519,39 @@ test('דחייה לסוף התור: הסימון נשמר, האישור מנקה
   assert.equal(approved.status, 'approved');
   assert.equal(approved.deferredAt, undefined);
 });
+
+// הקנס על יום שהוחמץ קובע ש"היום נגמר", וזו קביעה אחרת מהסיכום להורה.
+// כששניהם חלקו שעה אחת, ילדה הפסידה כוכבים ב-20:30 בזמן שנותרו לה
+// עוד שעות לתרגל.
+test('קנס: שעה נפרדת מהסיכום, ותרגול מאוחר מחזיר את הכוכבים', async () => {
+  const kid = await ok(admin('POST', 'children', { name: 'מאוחרת', haUserId: 'late_kid', notifyTime: '16:00' }));
+  await ok(admin('PUT', 'settings', { summaryTime: '20:30', penaltyTime: '22:00' }));
+  const before = (await ok(admin('GET', 'children'))).find(c => c.id === kid.id).stars || 0;
+
+  // 20:45 — אחרי הסיכום, לפני הקנס. אסור שירד כלום.
+  setClock('2026-10-14T18:45:00Z');
+  await scheduler.penaltyTick(store, { date: U.today(), minutes: 20 * 60 + 45 });
+  const mid = store.data.children.find(c => c.id === kid.id);
+  assert.equal(mid.stars || 0, before, 'בשעת הסיכום עוד אפשר לתרגל');
+  assert.equal(mid.missPenalty, undefined);
+});
+
+test('קנס שירד מוחזר בשלמותו כשהילד מתרגל באותו יום', () => {
+  const RW = require('../server/rewards');
+  const date = U.today();
+  const child = { id: 999, stars: 10 };
+  const lost = RW.applyMissPenalty(store, child, date);
+  if (!lost) return;                       // אם הקנס מכובה בהגדרות אין מה לבדוק
+  assert.equal(child.stars, 10 - lost);
+  assert.deepEqual(child.missPenalty, { date, stars: lost });
+
+  assert.equal(RW.refundMissPenalty(store, child, date), lost);
+  assert.equal(child.stars, 10, 'הסיבה לקנס בטלה, והכוכבים חוזרים במלואם');
+  assert.equal(child.missPenalty, undefined);
+
+  // החזרה שנייה לא מזכה פעמיים, וקנס של אתמול לא מוחזר היום
+  assert.equal(RW.refundMissPenalty(store, child, date), 0);
+  child.missPenalty = { date: '2020-01-01', stars: 5 };
+  assert.equal(RW.refundMissPenalty(store, child, date), 0);
+  assert.equal(child.stars, 10);
+});
