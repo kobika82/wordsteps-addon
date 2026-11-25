@@ -492,3 +492,30 @@ test('מבדק: רק מילים שנלמדו, ארבע אפשרויות, וצי�
   assert.equal(list[0].status, 'done');
   assert.equal(list[0].right, learned.length - 1);
 });
+
+// דחיית מילה לסוף תור האישור. אישור הוא עבודה ברצף, ומילה שדורשת
+// מחשבה עוצרת את כל הקלות שאחריה — וחוזרת לראש הרשימה בכל טעינה.
+test('דחייה לסוף התור: הסימון נשמר, האישור מנקה אותו', async () => {
+  const mk = async (en) => ok(admin('POST', 'words', { en, he: 'ת-' + en, level: 'beginner',
+    exampleEn: 'This is ' + en + '.', exampleHe: 'זה ' + en + '.', distractorsHe: ['אחד', 'שניים', 'שלושה'] }));
+  const a = await mk('deferone');
+  const b = await mk('defertwo');
+
+  const first = await ok(admin('POST', `words/${a.id}/defer`));
+  assert.ok(first.deferredAt, 'הדחייה נשמרת כחותמת זמן ולא כדגל, כדי שסדר הדחויות יישמר');
+
+  // הסימון שורד קריאה חוזרת של המאגר
+  const rows = await ok(admin('GET', 'words?status=draft'));
+  assert.ok(rows.find(w => w.id === a.id).deferredAt);
+  assert.ok(!rows.find(w => w.id === b.id).deferredAt, 'מילה אחרת לא נגעה');
+
+  // החזרה לתור
+  const back = await ok(admin('POST', `words/${a.id}/defer`, { undo: true }));
+  assert.equal(back.deferredAt, undefined);
+
+  // אישור מנקה: המילה יצאה מהתור ואין טעם לשמור סימון
+  await ok(admin('POST', `words/${a.id}/defer`));
+  const approved = await ok(admin('PUT', 'words/' + a.id, { status: 'approved' }));
+  assert.equal(approved.status, 'approved');
+  assert.equal(approved.deferredAt, undefined);
+});

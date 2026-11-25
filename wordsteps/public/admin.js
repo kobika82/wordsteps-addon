@@ -604,7 +604,13 @@
       const params = tab === 'recent' ? { recent: 24, level: fl.value } : { status: 'draft', level: fl.value };
       if (tab && tab !== 'recent') params.ai = tab;
       const rows = await WS.get('words?' + new URLSearchParams(params));
-      if (tab !== 'recent') rows.sort((a, b) => a.id - b.id);
+      // מילים שנדחו יורדות לסוף התור, ובינן לבין עצמן לפי סדר הדחייה.
+      // בלי זה הן חוזרות לראש הרשימה בכל טעינה, וזו כל הסיבה שהן נדחו.
+      if (tab !== 'recent') {
+        rows.sort((x, y) => (x.deferredAt ? 1 : 0) - (y.deferredAt ? 1 : 0)
+          || (x.deferredAt ? String(x.deferredAt).localeCompare(String(y.deferredAt)) : 0)
+          || x.id - y.id);
+      }
       list.innerHTML = '';
       cards = rows.slice(0, PAGE).map(w => wordCard(w, async () => { await drawStatus(); await load(); }));
       list.append(h('p.small.muted', rows.length ? `${rows.length} מילים` + (rows.length > PAGE ? ` — מוצגות ${PAGE} הראשונות` : '') : ''),
@@ -655,7 +661,8 @@
       h('div',
         h('div.row', { style: { marginBottom: '8px' } },
           h('h2.grow', en(w.en), ' — ', w.he || '?', ' ', WS.speakBtn(w.en, '.btn.sm')),
-          h('span.badge', M.levels[w.level] || w.level), w.topic ? h('span.badge.info', M.topics[w.topic] || w.topic) : null),
+          h('span.badge', M.levels[w.level] || w.level), w.topic ? h('span.badge.info', M.topics[w.topic] || w.topic) : null,
+          w.deferredAt ? h('span.badge.warn', '⤓ נדחתה לסוף') : null),
         aiBox(w.ai),
         contentFields(w, onChange),
         exercisePreview(w, ['mc', 'cloze', 'type']),
@@ -665,6 +672,12 @@
             ? h('button.btn.sm', { onclick: (e) => WS.busy(e.currentTarget, async () => { await WS.post('words/unapprove', { ids: [w.id] }); WS.toast(`"${w.en}" חזרה לממתינות`); reload(); }) }, '↩ החזרה לממתינות')
             : h('button.btn.ok.sm', { onclick: (e) => WS.busy(e.currentTarget, async () => { if (dirty) await save(); await WS.put('words/' + w.id, { status: 'approved' }); WS.toast(`"${w.en}" אושרה ✓`); reload(); }) }, '✓ אישור'),
           h('button.btn.sm', { onclick: (e) => WS.busy(e.currentTarget, async () => { await WS.post(`words/${w.id}/autofill`); reload(); }) }, '✨ השלמה ב-Gemini'),
+          w.status === 'approved' ? null
+            : w.deferredAt
+              ? h('button.btn.sm', { title: 'להחזיר למקומה לפי סדר המאגר',
+                onclick: (e) => WS.busy(e.currentTarget, async () => { if (dirty) await save(); await WS.post(`words/${w.id}/defer`, { undo: true }); WS.toast(`"${w.en}" חזרה לתור`); reload(); }) }, '↩ החזרה לתור')
+              : h('button.btn.sm', { title: 'לא תופיע שוב עד שתסיים את השאר',
+                onclick: (e) => WS.busy(e.currentTarget, async () => { if (dirty) await save(); await WS.post(`words/${w.id}/defer`); WS.toast(`"${w.en}" נדחתה לסוף התור`); reload(); }) }, '⤓ דחה לסוף'),
           h('div.grow'),
           h('button.btn.danger.sm', { onclick: async () => { if (!confirm(`למחוק את "${w.en}" מהמאגר?`)) return; try { await WS.del('words/' + w.id); reload(); } catch (e) { WS.fail(e); } } }, 'מחיקה'))));
     return { el, id: w.id, dirty: () => dirty, save };

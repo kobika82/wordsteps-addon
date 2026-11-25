@@ -615,12 +615,30 @@ route('PUT', '/api/words/:id', 'admin', async ({ params, body }) => {
   if ('level' in body && C.LEVELS.includes(body.level)) w.level = body.level;
   if ('topic' in body) w.topic = C.TOPICS[body.topic] ? body.topic : '';
   if ('difficulty' in body) w.difficulty = int(body.difficulty, 1, 10, w.difficulty);
-  if (body.status === 'approved') L.approveWord(store, w);
+  if (body.status === 'approved') { delete w.deferredAt; L.approveWord(store, w); }
   else if (body.status === 'draft') w.status = 'draft';
   w.updatedAt = U.now().toISOString();
   store.save();
   return wordRow(w);
 });
+// דחיית מילה לסוף תור האישור.
+//
+// אישור הוא עבודה ברצף: עוברים על המילים הפשוטות מהר, ומילה שדורשת
+// מחשבה עוצרת את כולן. בלי דחייה היא חוזרת לראש הרשימה בכל טעינה,
+// ומי שרוצה לסיים את הקלות נתקע בה שוב ושוב.
+//
+// הסימון הוא חותמת זמן ולא דגל, כדי שסדר הדחויות ביניהן יישמר: מי
+// שנדחתה ראשונה תחזור ראשונה.
+route('POST', '/api/words/:id/defer', 'admin', async ({ params, body }) => {
+  const w = store.word(params.id);
+  if (!w) throw new HttpError(404, 'המילה לא נמצאה');
+  if (body && body.undo) delete w.deferredAt;
+  else w.deferredAt = U.now().toISOString();
+  w.updatedAt = U.now().toISOString();
+  store.save();
+  return wordRow(w);
+});
+
 route('POST', '/api/words/:id/autofill', 'admin', async ({ params }) => {
   const w = store.word(params.id);
   if (!w) throw new HttpError(404, 'המילה לא נמצאה');
