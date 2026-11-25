@@ -604,12 +604,26 @@
       const params = tab === 'recent' ? { recent: 24, level: fl.value } : { status: 'draft', level: fl.value };
       if (tab && tab !== 'recent') params.ai = tab;
       const rows = await WS.get('words?' + new URLSearchParams(params));
-      // מילים שנדחו יורדות לסוף התור, ובינן לבין עצמן לפי סדר הדחייה.
-      // בלי זה הן חוזרות לראש הרשימה בכל טעינה, וזו כל הסיבה שהן נדחו.
+      // סדר התור:
+      //   1. מה שלא נדחה, לפני מה שנדחה
+      //   2. בתוך כל קבוצה — לפי רמה
+      //   3. ובתוך הרמה — פיזור, לא לפי א"ב
+      //
+      // המילים יובאו מרשימות רשמיות בסדר אלפביתי, ולכן מיון לפי מזהה
+      // פירושו לאשר ערב אחרי ערב מילים באותה אות ולא להגיע לשאר לעולם.
+      //
+      // הפיזור נגזר מהמזהה ולא מ-Math.random, וזה העיקר: סדר שמשתנה
+      // בכל טעינה גרוע מא"ב. מילה שדילגת עליה הייתה קופצת בחזרה לפניך
+      // ואי אפשר היה לדעת איפה עצרת. אותו מזהה נותן תמיד אותו מקום.
       if (tab !== 'recent') {
+        const LV = Object.keys(M.levels);
+        const lv = (w) => { const i = LV.indexOf(w.level); return i < 0 ? LV.length : i; };
+        // כפל בקבוע של Knuth: מפזר היטב מזהים רצופים, ויציב לחלוטין
+        const scatter = (id) => (Number(id) * 2654435761) % 4294967296;
         rows.sort((x, y) => (x.deferredAt ? 1 : 0) - (y.deferredAt ? 1 : 0)
           || (x.deferredAt ? String(x.deferredAt).localeCompare(String(y.deferredAt)) : 0)
-          || x.id - y.id);
+          || lv(x) - lv(y)
+          || scatter(x.id) - scatter(y.id));
       }
       list.innerHTML = '';
       cards = rows.slice(0, PAGE).map(w => wordCard(w, async () => { await drawStatus(); await load(); }));
