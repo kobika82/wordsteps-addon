@@ -555,3 +555,25 @@ test('קנס שירד מוחזר בשלמותו כשהילד מתרגל באות
   assert.equal(RW.refundMissPenalty(store, child, date), 0);
   assert.equal(child.stars, 10);
 });
+
+// תיקון ידני של כוכבים. קיים כי האפליקציה יכולה לטעות — וטעתה ב-25/11,
+// כשקנסה את נועם על שיעור שכן עשתה — ובלי זה אין שום דרך להחזיר.
+test('תיקון כוכבים: מוסיף למאזן, לא נספר כהרווחה, ומתועד', async () => {
+  const kid = await ok(admin('POST', 'children', { name: 'לתיקון', haUserId: 'fix_kid' }));
+  const before = store.data.children.find(c => c.id === kid.id);
+  before.stars = 7; before.starsEarned = 7;
+
+  const r = await ok(admin('POST', `children/${kid.id}/stars`, { delta: 5, reason: 'קנס שגוי ב-25.11' }));
+  assert.equal(r.stars, 12);
+  assert.equal(before.starsEarned, 7, 'תיקון של טעות שלנו אינו הרווחה');
+  assert.equal(r.adjustments[0].delta, 5);
+  assert.match(r.adjustments[0].reason, /25\.11/);
+
+  // המאזן לא יורד מתחת לאפס, והתיעוד משקף את מה שבאמת קרה
+  const neg = await ok(admin('POST', `children/${kid.id}/stars`, { delta: -99 }));
+  assert.equal(neg.stars, 0);
+  assert.equal(neg.delta, -12, 'התיעוד הוא מה שבאמת זז, לא מה שביקשו');
+
+  // אפס נדחה — הוא תמיד טעות הקלדה
+  assert.equal((await admin('POST', `children/${kid.id}/stars`, { delta: 0 })).status, 400);
+});

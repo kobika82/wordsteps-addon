@@ -444,6 +444,27 @@ route('POST', '/api/children', 'admin', async ({ body }) => {
   store.save();
   return c;
 });
+// תיקון ידני של מאזן הכוכבים.
+//
+// עד עכשיו לא הייתה דרך כזו בכלל: כוכבים השתנו רק משיעור, מקנס ומפרס.
+// כשהאפליקציה טועה — וב-25/11 היא טעתה, וקנסה את נועם על שיעור שכן
+// עשתה — ההורה נשאר בלי שום דרך לתקן.
+//
+// starsEarned לא זז: הוא מונה כמה הרוויח הילד בפועל, ותיקון של טעות
+// שלנו אינו הרווחה. בדיוק כמו ההחזר האוטומטי של הקנס.
+route('POST', '/api/children/:id/stars', 'admin', async ({ params, body }) => {
+  const c = childOr404(params.id);
+  const delta = int(body.delta, -9999, 9999, 0);
+  if (!delta) throw new HttpError(400, 'צריך מספר כוכבים לתיקון');
+  const reason = String(body.reason || '').trim().slice(0, 120);
+  const before = c.stars || 0;
+  c.stars = Math.max(0, before + delta);
+  // תיעוד, כדי שתיקון ידני לא ייראה אחר כך כקסם
+  c.starAdjustments = [{ at: U.now().toISOString(), delta: c.stars - before, reason }, ...(c.starAdjustments || [])].slice(0, 20);
+  store.save();
+  return { stars: c.stars, delta: c.stars - before, adjustments: c.starAdjustments };
+});
+
 route('PUT', '/api/children/:id', 'admin', async ({ params, body }) => {
   const c = childOr404(params.id);
   const next = sanitizeChild(body, c);

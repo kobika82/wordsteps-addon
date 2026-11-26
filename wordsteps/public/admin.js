@@ -304,6 +304,35 @@
   }
   const checked = (root, name) => [...root.querySelectorAll(`input[name="${name}"]:checked`)].map(i => i.value);
 
+  // תיקון מאזן הכוכבים. קיים כי האפליקציה יכולה לטעות — וטעתה — ובלי
+  // כפתור כזה אין שום דרך להחזיר לילד מה שנלקח ממנו בטעות.
+  function starFixCard(c) {
+    const amount = h('input', { type: 'number', value: 5, min: -999, max: 999, style: { maxWidth: '110px' } });
+    const reason = h('input', { type: 'text', placeholder: 'סיבה (נשמרת ביומן)', maxlength: 120 });
+    const now = h('span.badge.ok', '⭐ ' + (c.stars || 0));
+    const hist = h('div.small.muted');
+    const draw = (list) => {
+      hist.innerHTML = '';
+      for (const x of (list || c.starAdjustments || []).slice(0, 5)) {
+        hist.appendChild(h('div', `${new Date(x.at).toLocaleDateString('he-IL')} · ${x.delta > 0 ? '+' : ''}${x.delta} ⭐${x.reason ? ' — ' + x.reason : ''}`));
+      }
+    };
+    draw();
+    return h('div.card',
+      h('div.row', h('h2.grow', '⭐ תיקון כוכבים'), now),
+      h('p.small.muted', 'לשימוש כשהאפליקציה טעתה. המספר נוסף למאזן ואינו נספר כהרווחה.'),
+      h('div.row', amount, reason,
+        h('button.btn.primary', { onclick: (e) => WS.busy(e.currentTarget, async () => {
+          const r = await WS.post(`children/${c.id}/stars`, { delta: Number(amount.value), reason: reason.value });
+          c.stars = r.stars; c.starAdjustments = r.adjustments;
+          now.textContent = '⭐ ' + r.stars;
+          reason.value = '';
+          draw(r.adjustments);
+          WS.toast(`${r.delta > 0 ? '+' : ''}${r.delta} ⭐ · המאזן עכשיו ${r.stars}`);
+        }) }, 'עדכון')),
+      hist);
+  }
+
   async function childPage(id) {
     const isNew = id === 'new';
     const [c, usersR, servR] = await Promise.all([
@@ -389,7 +418,9 @@
       isNew ? null : h('div.row', { style: { marginBottom: '12px' } },
         h('a.btn', { href: '#/reports/' + c.id }, '📊 דוח התקדמות'), h('a.btn', { href: '#/lessons?child=' + c.id }, '📅 שיעורים'),
         h('button.btn', { onclick: (e) => previewNext(c, e.currentTarget) }, '👁 תצוגה מקדימה של השיעור הבא')),
-      form, h('div.row', save, h('div.grow'), del), ...extra);
+      form, h('div.row', save, h('div.grow'), del),
+      isNew ? null : starFixCard(c),
+      ...extra);
 
     async function loadNotifs() {
       const box = document.getElementById('notifs');
