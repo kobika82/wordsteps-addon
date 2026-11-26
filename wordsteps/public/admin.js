@@ -561,6 +561,15 @@
   }
 
   // ---------------- אישור מילים ----------------
+  // ברירת המחדל של מסך האישור: מה ש-Gemini תיקן, ברמה הבינונית. זה
+  // המלאי שעוברים עליו בפועל, ובלי זה כל כניסה מתחילה מהרשימה המלאה
+  // וצריך לבחור מחדש פעמיים.
+  //
+  // **היא מוותרת על עצמה כשהמלאי נגמר.** טעינה שמחזירה אפס מילים
+  // חוזרת מיד לרשימה המלאה, ולכן זה לא יכול להפוך למסך ריק שנראה
+  // כאילו אין מה לאשר.
+  const PREF = { ai: 'fixed', level: 'intermediate' };
+
   const AI_TABS = [['', 'כל הממתינות'], ['ok', '✅ Gemini אישר'], ['fixed', '✏️ Gemini תיקן'], ['reject', '⛔ Gemini פסל'], ['none', '⏳ טרם נבדקו'], ['recent', '↩️ אושרו לאחרונה']];
   async function approveWords() {
     const fl = h('select', h('option', { value: '' }, 'כל הרמות'), Object.entries(M.levels).map(([k, t]) => h('option', { value: k }, t)));
@@ -580,7 +589,11 @@
     });
     const PAGE = 15;
     let cards = [];
-    let tab = new URLSearchParams(location.hash.split('?')[1] || '').get('ai') || '';
+    // פרמטר מפורש בכתובת גובר: מי שהגיע לכאן מקישור מסוים התכוון אליו
+    const fromUrl = new URLSearchParams(location.hash.split('?')[1] || '').get('ai');
+    let tab = fromUrl != null ? fromUrl : PREF.ai;
+    let preferring = fromUrl == null;          // עדיין על ברירת המחדל
+    if (preferring) fl.value = PREF.level;
     async function drawStatus() {
       const s = await WS.get('ai-review');
       const labels = { '': s.counts.ok + s.counts.fixed + s.counts.reject + s.counts.unchecked, ok: s.counts.ok, fixed: s.counts.fixed, reject: s.counts.reject, none: s.counts.unchecked };
@@ -604,6 +617,14 @@
       const params = tab === 'recent' ? { recent: 24, level: fl.value } : { status: 'draft', level: fl.value };
       if (tab && tab !== 'recent') params.ai = tab;
       const rows = await WS.get('words?' + new URLSearchParams(params));
+      if (preferring && !rows.length) {
+        // נגמרו המילים שברירת המחדל מצביעה עליהן
+        preferring = false;
+        tab = '';
+        fl.value = '';
+        await drawStatus();
+        return load();
+      }
       // סדר התור:
       //   1. מה שלא נדחה, לפני מה שנדחה
       //   2. בתוך כל קבוצה — לפי רמה
