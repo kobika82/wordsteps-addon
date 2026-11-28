@@ -75,7 +75,15 @@
         h('span.small.muted', c.weekAccuracy == null ? 'אין תרגולים השבוע' : `השבוע: ${c.weekSessions} תרגולים, ${c.weekAccuracy}% הצלחה`)),
       h('div.row',
         c.suggestNext ? h('button.btn.primary', { onclick: (e) => unlock(c, c.suggestNext, e.currentTarget, after) }, `🔓 לפתוח את כפולות של ${c.suggestNext}`) : null,
-        h('button.btn', { onclick: () => KF.go('#/child/' + c.id) }, 'כל הכפולות והפרטים')));
+        h('button.btn', { onclick: () => KF.go('#/child/' + c.id) }, 'כל הכפולות והפרטים'),
+        // המכשיר הזה הופך למסך של הילד. שימושי כשהטלפון שלו מקולקל:
+        // חשבון ה-HA נשאר שלך, והתרגול נרשם אצלו.
+        c.active ? h('button.btn', {
+          onclick: () => {
+            if (!confirm(`להפוך את המכשיר הזה למסך התרגול של ${c.name}?\n\nכל תרגול וכל כוכב יירשמו אצלו. חזרה למסך ההורה בכפתור שבראש המסך.`)) return;
+            KF.setPractice(c.id);
+          },
+        }, '📱 תרגול במכשיר הזה') : null));
   }
 
   async function unlock(c, n, btn, after) {

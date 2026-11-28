@@ -71,7 +71,18 @@ async function resolve(req, url) {
     store.data.users[user.id] = { id: user.id, name: user.name, displayName: user.displayName, lastSeen: U.now().toISOString() };
     store.save();
   }
-  if (await isAdmin(user)) return { role: 'admin', user };
+  if (await isAdmin(user)) {
+    // תרגול על המכשיר של ההורה. הזיהוי כאן הוא לפי משתמש ה-HA ולא לפי
+    // המכשיר, ולכן ילד שהטלפון שלו התקלקל נתקל במסך המנהל — אין לו שום
+    // דרך להגיע למסך שלו. הורה שבחר ילד מקבל את מסך הילד, וכל מה שנרשם
+    // נרשם לאותו ילד.
+    const want = String(url.searchParams.get('practice') || '');
+    if (want) {
+      const kid = store.data.children.find(c => String(c.id) === want);
+      if (kid && kid.active) return { role: 'child', user, child: kid, practiceAs: true };
+    }
+    return { role: 'admin', user };
+  }
   const child = store.data.children.find(c => c.haUserId === user.id);
   if (child) return { role: child.active ? 'child' : 'paused', user, child };
   return { role: 'unknown', user };
@@ -144,6 +155,8 @@ route('GET', '/api/me', 'any', async (ctx) => {
     meta: { themes: M.THEMES, statusHe: M.STATUS_HE, today: U.today(), dev: DEV }
   };
   if (ctx.child) base.child = { id: ctx.child.id, name: ctx.child.name, gender: ctx.child.gender, stars: ctx.child.stars || 0 };
+  // המסך צריך לדעת שזה תרגול של הורה, כדי להציג דרך חזרה
+  if (ctx.practiceAs) base.practiceAs = true;
   if (ctx.role === 'unknown' && !ha.connected() && !adminNames.length && !store.data.settings.adminUserIds.length) base.setupNeeded = true;
   return base;
 });

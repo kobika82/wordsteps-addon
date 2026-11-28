@@ -2,8 +2,17 @@
 // משותף לממשק הילד וההורה: קריאות API, בניית DOM, הקראה בעברית, ציורי הקבוצות, ניתוב.
 const KF = window.KF = {};
 
+// תרגול במכשיר של ההורה: מזהה הילד נשמר במכשיר ונוסף לכל קריאה.
+// לא בשרת — כדי שהמחשב של ההורה יישאר מסך מנהל בזמן שהטלפון מתרגל.
+KF.practice = (() => { try { return localStorage.getItem('kf-practice') || ''; } catch (e) { return ''; } })();
+KF.setPractice = (id) => {
+  try { id ? localStorage.setItem('kf-practice', String(id)) : localStorage.removeItem('kf-practice'); } catch (e) { /* אין אחסון */ }
+  location.reload();
+};
+
 KF.api = async function (method, path, body) {
-  const res = await fetch('api/' + path, {
+  const q = KF.practice ? (path.includes('?') ? '&' : '?') + 'practice=' + encodeURIComponent(KF.practice) : '';
+  const res = await fetch('api/' + path + q, {
     method, credentials: 'same-origin',
     headers: body ? { 'Content-Type': 'application/json' } : {},
     body: body ? JSON.stringify(body) : undefined

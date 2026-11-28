@@ -23,7 +23,12 @@
       h('a' + (tab === 'progress' ? '.on' : ''), { href: '#/progress' }, '📈 התקדמות'),
       h('a' + (tab === 'clock' ? '.on' : ''), { href: '#/clock' }, '🕐 שעון'),
       h('a' + (tab === 'rewards' ? '.on' : ''), { href: '#/rewards' }, '🎁 פרסים'));
-    KF.mount(h('div.kid-wrap', top, content), nav);
+    // תרגול על המכשיר של ההורה: בלי השלט הזה אין שום סימן למי נרשמים
+    // הכוכבים, ואין דרך לחזור למסך המנהל.
+    const flag = KF.me.practiceAs ? h('div.preview-flag',
+      `מתרגל/ת בתור ${KF.me.child?.name || ''} · `,
+      h('a', { href: '#', onclick: (e) => { e.preventDefault(); KF.setPractice(''); } }, 'חזרה למסך ההורה')) : null;
+    KF.mount(h('div.kid-wrap', flag, top, content), nav);
   }
 
   Child.init = function () {
